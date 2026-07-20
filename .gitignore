@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+data/market.csv
+data/demo_market.csv
+state/
+reports/
+.env
