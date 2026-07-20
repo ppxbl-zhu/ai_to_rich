@@ -64,7 +64,7 @@ def momentum_score(bars: list[Bar], weights: tuple[float, float, float]) -> floa
     return weights[0] * ret20 + weights[1] * ret60 - weights[2] * vol + 0.0001 * liquidity
 
 
-def walk_forward_fitness(grouped: dict[str, list[Bar]], weights: tuple[float, float, float]) -> float:
+def walk_forward_metrics(grouped: dict[str, list[Bar]], weights: tuple[float, float, float]) -> dict:
     observations = []
     for bars in grouped.values():
         for i in range(80, len(bars) - 6, 20):
@@ -72,12 +72,20 @@ def walk_forward_fitness(grouped: dict[str, list[Bar]], weights: tuple[float, fl
             future = bars[i + 5].close / bars[i].close - 1
             observations.append((score, future))
     if len(observations) < 10:
-        return -999.0
+        return {"fitness": -999.0, "spread": 0.0, "win_rate": 0.0, "relative_win_rate": 0.0, "observations": len(observations)}
     observations.sort()
     q = max(1, len(observations) // 5)
-    spread = sum(x[1] for x in observations[-q:]) / q - sum(x[1] for x in observations[:q]) / q
+    top = observations[-q:]
+    spread = sum(x[1] for x in top) / q - sum(x[1] for x in observations[:q]) / q
+    win_rate = sum(future > 0 for _, future in top) / q
+    baseline_win_rate = sum(future > 0 for _, future in observations) / len(observations)
+    relative_win_rate = win_rate - baseline_win_rate
     complexity = .002 * sum(abs(x) for x in weights)
-    return spread - complexity
+    return {"fitness": spread + .02 * relative_win_rate - complexity, "spread": spread, "win_rate": win_rate, "relative_win_rate": relative_win_rate, "observations": len(observations)}
+
+
+def walk_forward_fitness(grouped: dict[str, list[Bar]], weights: tuple[float, float, float]) -> float:
+    return walk_forward_metrics(grouped, weights)["fitness"]
 
 
 def evolve_weights(grouped: dict[str, list[Bar]], seed: int = 7, generations: int = 20) -> tuple[float, float, float]:
@@ -97,7 +105,8 @@ def evolve_weights(grouped: dict[str, list[Bar]], seed: int = 7, generations: in
 
 def choose_champion(grouped: dict[str, list[Bar]], model_path: Path, trained_date: str, promotion_margin: float = .001) -> dict:
     candidate = evolve_weights(grouped)
-    candidate_score = walk_forward_fitness(grouped, candidate)
+    candidate_metrics = walk_forward_metrics(grouped, candidate)
+    candidate_score = candidate_metrics["fitness"]
     incumbent = json.loads(model_path.read_text(encoding="utf-8")) if model_path.exists() else None
     incumbent_score = walk_forward_fitness(grouped, tuple(incumbent["weights"])) if incumbent else -999.0
     promoted = incumbent is None or candidate_score >= incumbent_score + promotion_margin
@@ -105,6 +114,7 @@ def choose_champion(grouped: dict[str, list[Bar]], model_path: Path, trained_dat
         champion = {
             "version": f"daily-{trained_date}", "trained_date": trained_date,
             "weights": list(candidate), "fitness": candidate_score,
+            "metrics": candidate_metrics,
         }
     else:
         champion = incumbent
@@ -113,7 +123,7 @@ def choose_champion(grouped: dict[str, list[Bar]], model_path: Path, trained_dat
     return {
         "weights": tuple(champion["weights"]), "version": champion["version"],
         "candidate_score": candidate_score, "incumbent_score": incumbent_score,
-        "promoted": promoted,
+        "candidate_metrics": candidate_metrics, "promoted": promoted,
     }
 
 
@@ -197,7 +207,8 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
         p["last_price"] = opens.get(symbol, p["last_price"])
     state["last_date"] = trade_date
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    report = [f"# 模拟盘日报 {trade_date}", "", f"- 信号日期：{signal_date}", f"- 数据来源：{metadata.get('source', 'unknown')}", f"- 全市场监控：{metadata.get('universe_size', len(grouped))}只", f"- 训练股票池：{len(grouped)}只（运行前已剔除ST）", f"- 市场状态：{market['regime']}，20日宽度 {market['breadth']:.2%}，中位20日收益 {market['median_return20']:.2%}", f"- 目标持仓：{target_count}只", f"- 高覆盖交易日：{len(covered_dates)}天", f"- 模拟权益：{equity:.2f}元", f"- 当前回撤：{drawdown:.2%}", f"- 现金：{state['cash']:.2f}元", f"- 冠军模型：{model['version']}", f"- 候选模型：{'已晋级' if model['promoted'] else '未晋级'}，样本外适应度 {model['candidate_score']:.6f}", f"- GA权重：{tuple(round(x, 4) for x in weights)}", "", "## 模拟成交", ""]
+    candidate_metrics = model["candidate_metrics"]
+    report = [f"# 模拟盘日报 {trade_date}", "", f"- 信号日期：{signal_date}", f"- 数据来源：{metadata.get('source', 'unknown')}", f"- 全市场监控：{metadata.get('universe_size', len(grouped))}只", f"- 训练股票池：{len(grouped)}只（运行前已剔除ST）", f"- 市场状态：{market['regime']}，20日宽度 {market['breadth']:.2%}，中位20日收益 {market['median_return20']:.2%}", f"- 目标持仓：{target_count}只", f"- 高覆盖交易日：{len(covered_dates)}天", f"- 模拟权益：{equity:.2f}元", f"- 当前回撤：{drawdown:.2%}", f"- 现金：{state['cash']:.2f}元", f"- 冠军模型：{model['version']}", f"- 候选模型：{'已晋级' if model['promoted'] else '未晋级'}，样本外适应度 {model['candidate_score']:.6f}", f"- 候选顶部组合胜率：{candidate_metrics['win_rate']:.2%}，相对全样本 {candidate_metrics['relative_win_rate']:+.2%}", f"- GA权重：{tuple(round(x, 4) for x in weights)}", "", "## 模拟成交", ""]
     report.extend([f"- {x}" for x in trades] or ["- 无"])
     report.extend(["", "## 当前持仓", ""])
     report.extend([f"- {s} {names.get(s, s)}: {p['shares']}股，模拟成本 {p['cost']:.2f}" for s, p in state["positions"].items()] or ["- 空仓"])
