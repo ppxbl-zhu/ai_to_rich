@@ -15,10 +15,11 @@
 
 ```powershell
 & 'C:\Users\zsjpp\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m quantlab.cli demo
+& 'C:\Users\zsjpp\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m quantlab.cli fetch
 & 'C:\Users\zsjpp\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m quantlab.cli run
 ```
 
-真实日线数据放到 `data/market.csv`，字段为：
+`fetch` 默认使用环境变量 `TUSHARE_TOKEN` 调用 Tushare，以最近完整交易日的成交额筛选100只高流动性股票，剔除官方 ST 名单和上市未满120天的股票，并用复权因子生成前复权日线。Tushare失败时才降级到腾讯自选股备用源，实际来源写入 `data/market.meta.json`。也可以自行放入有授权的数据，字段为：
 
 ```text
 date,symbol,open,high,low,close,volume
@@ -28,8 +29,25 @@ date,symbol,open,high,low,close,volume
 
 ## 微信推送
 
-个人微信没有稳定的官方机器人入口，因此默认只写本地报告。后续可在 `quantlab/notifier.py` 中接入你选定的公众号推送服务；令牌只能通过环境变量传入，不写入仓库。
+个人微信没有稳定的官方机器人入口，因此默认只写本地报告。项目支持通过 PushPlus 转发到微信，令牌只从环境变量读取：
+
+```powershell
+$env:PUSHPLUS_TOKEN = "你的令牌"
+& 'C:\Users\zsjpp\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m quantlab.cli daily
+```
+
+`daily` 会依次更新行情、运行模拟盘并尝试推送；未配置令牌时会安全跳过推送。
+
+## 盘中训练样本
+
+盘中监控默认每 5 秒抓取一次当前合规股票池快照，并按日期追加保存到 `data/realtime/YYYY-MM-DD.jsonl`。采集器只在沪深连续交易时段运行，名称含 `ST` 的股票会被剔除：
+
+```powershell
+& 'C:\Users\zsjpp\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m quantlab.cli monitor --interval 5 --minutes 240
+```
+
+使用 `--once` 可以在非交易时段采集一次，用于连通性诊断。实时快照只作为后续特征工程和走样本外训练的原始样本，不会触发真实交易。
 
 ## 当前边界
 
-第一版是可审计骨架，演示数据只用于验证管线，不能用于评估收益。接入有授权的A股行情并积累足够样本后，才能评价模型效果。
+腾讯盘中入口只适合研究和模拟验证，不承诺可用性或数据授权范围，不应用于实盘下单。冠军模型只在滚动样本外适应度超过现有模型时晋级；分钟样本积累不足时不会参与模型晋级。
