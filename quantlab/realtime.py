@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import gzip
 import time
 from datetime import datetime, time as clock_time
 from pathlib import Path
@@ -22,7 +23,7 @@ def in_trading_session(now: datetime | None = None) -> bool:
     )
 
 
-def fetch_quotes(symbols: list[str], timeout: float = 10, retries: int = 3) -> list[dict]:
+def _fetch_quotes_batch(symbols: list[str], timeout: float = 10, retries: int = 3) -> list[dict]:
     request = Request(TENCENT_QUOTE_URL + ",".join(market_symbol(symbol) for symbol in symbols), headers={"User-Agent": "Mozilla/5.0 quantlab/0.2"})
     for attempt in range(retries):
         try:
@@ -60,11 +61,19 @@ def fetch_quotes(symbols: list[str], timeout: float = 10, retries: int = 3) -> l
     return quotes
 
 
+def fetch_quotes(symbols: list[str], timeout: float = 10, retries: int = 3, batch_size: int = 100) -> list[dict]:
+    quotes = []
+    for offset in range(0, len(symbols), batch_size):
+        quotes.extend(_fetch_quotes_batch(symbols[offset:offset + batch_size], timeout, retries))
+    return quotes
+
+
 def append_snapshot(path: Path, quotes: list[dict]) -> int:
     if not quotes:
         raise RuntimeError("实时行情接口没有返回可用的非ST股票")
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "at", encoding="utf-8") as handle:
         for quote in quotes:
             handle.write(json.dumps(quote, ensure_ascii=False) + "\n")
     return len(quotes)
@@ -87,7 +96,7 @@ def monitor(symbols: list[str], directory: Path, interval: float = 5, minutes: f
     while True:
         now = datetime.now(SHANGHAI)
         if once or in_trading_session(now):
-            path = directory / f"{now.date().isoformat()}.jsonl"
+            path = directory / f"{now.date().isoformat()}.jsonl.gz"
             quotes = fetch_quotes(symbols)
             if not once:
                 ensure_fresh(quotes, now)

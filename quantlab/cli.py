@@ -25,7 +25,11 @@ def main() -> None:
     config_path = root / "config.json"
     if args.command == "monitor":
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        symbols = sorted(load_bars(data)) if data.exists() else config["watchlist"]
+        roster_path = root / "data" / "universe.json"
+        if roster_path.exists():
+            symbols = sorted(row["ts_code"].split(".")[0] for row in json.loads(roster_path.read_text(encoding="utf-8")))
+        else:
+            symbols = sorted(load_bars(data)) if data.exists() else config["watchlist"]
         count = monitor(symbols, root / "data" / "realtime", args.interval, args.minutes, args.once)
         print(f"实时训练样本已保存：{count} 条")
         return
@@ -36,7 +40,7 @@ def main() -> None:
                 updated, metadata = update_tushare_market_csv(
                     TushareClient.from_environment(), data,
                     config.get("universe_size", 100), config.get("history_days", 500),
-                    config.get("minimum_listing_days", 120),
+                    config.get("minimum_listing_days", 120), config.get("training_universe_size", 500),
                 )
             except Exception:
                 if not config.get("allow_public_fallback", True):

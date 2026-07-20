@@ -15,8 +15,12 @@
   "data_source": "tushare",
   "allow_public_fallback": true,
   "history_days": 500,
-  "universe_size": 100,
+  "universe_size": 0,
+  "training_universe_size": 500,
   "minimum_listing_days": 120,
   "model_promotion_margin": 0.001,
+  "sector_rotation_weight": 0.25,
+  "neutral_exposure": 0.80,
+  "weak_exposure": 0.40,
   "watchlist": ["600000", "600036", "600519", "000001", "000333", "000651", "300750", "002594"]
 }

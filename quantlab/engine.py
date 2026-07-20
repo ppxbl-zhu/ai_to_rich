@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import random
+import statistics
 from dataclasses import dataclass, asdict
 from datetime import date, timedelta
 from pathlib import Path
@@ -34,6 +35,22 @@ def load_bars(path: Path) -> dict[str, list[Bar]]:
 def load_names(path: Path) -> dict[str, str]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         return {row["symbol"]: (row.get("name") or row["symbol"]) for row in csv.DictReader(handle)}
+
+
+def load_industries(path: Path) -> dict[str, str]:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return {row["symbol"]: (row.get("industry") or "未分类") for row in csv.DictReader(handle)}
+
+
+def assess_market(histories: dict[str, list[Bar]]) -> dict:
+    usable = [bars for bars in histories.values() if len(bars) >= 21 and bars[-21].close > 0]
+    if not usable:
+        return {"regime": "未知", "breadth": 0.0, "median_return20": 0.0}
+    breadth = sum(bars[-1].close > sum(bar.close for bar in bars[-20:]) / 20 for bars in usable) / len(usable)
+    returns = [bars[-1].close / bars[-21].close - 1 for bars in usable]
+    median_return = statistics.median(returns)
+    regime = "弱势" if breadth < .4 or median_return < -.03 else ("强势" if breadth >= .6 and median_return > 0 else "震荡")
+    return {"regime": regime, "breadth": breadth, "median_return20": median_return}
 
 
 def momentum_score(bars: list[Bar], weights: tuple[float, float, float]) -> float:
@@ -106,6 +123,7 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
     metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {"source": "local-csv"}
     grouped = load_bars(data_path)
     names = load_names(data_path)
+    industries = load_industries(data_path)
     st_symbols = [symbol for symbol, name in names.items() if "ST" in name.upper().replace(" ", "")]
     for symbol in st_symbols:
         grouped.pop(symbol, None)
@@ -124,7 +142,16 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
     histories = {s: [b for b in bars if b.date <= signal_date] for s, bars in tradable.items()}
     model = choose_champion(grouped, state_dir / "models" / "champion.json", signal_date, cfg.get("model_promotion_margin", .001))
     weights = model["weights"]
-    ranked = sorted(((momentum_score(b, weights), s) for s, b in histories.items()), reverse=True)
+    base_scores = {symbol: momentum_score(bars, weights) for symbol, bars in histories.items()}
+    sector_members = {}
+    for symbol, score in base_scores.items():
+        if score > -900:
+            sector_members.setdefault(industries.get(symbol, "未分类"), []).append(score)
+    sector_scores = {sector: statistics.mean(scores) for sector, scores in sector_members.items() if len(scores) >= 2}
+    sector_weight = cfg.get("sector_rotation_weight", .25)
+    ranked = sorted(((score + sector_weight * sector_scores.get(industries.get(symbol, "未分类"), 0), symbol) for symbol, score in base_scores.items()), reverse=True)
+    market = assess_market(histories)
+    leading_sectors = sorted(sector_scores.items(), key=lambda item: item[1], reverse=True)[:10]
 
     state_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -138,6 +165,8 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
     state["peak"] = max(state["peak"], equity)
     drawdown = 1 - equity / state["peak"]
     target_count = 0 if drawdown >= cfg["halt_drawdown"] else (2 if drawdown >= cfg["defensive_drawdown"] else cfg["max_positions"])
+    regime_factor = {"强势": 1.0, "震荡": cfg.get("neutral_exposure", .8), "弱势": cfg.get("weak_exposure", .4), "未知": .4}[market["regime"]]
+    target_count = 0 if target_count == 0 else max(1, round(target_count * regime_factor))
     selected = [s for score, s in ranked if score > -900][:target_count * 5]
 
     trades = []
@@ -168,12 +197,14 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
         p["last_price"] = opens.get(symbol, p["last_price"])
     state["last_date"] = trade_date
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    report = [f"# 模拟盘日报 {trade_date}", "", f"- 信号日期：{signal_date}", f"- 数据来源：{metadata.get('source', 'unknown')}", f"- 股票池：{len(grouped)}只（运行前已剔除ST）", f"- 高覆盖交易日：{len(covered_dates)}天", f"- 模拟权益：{equity:.2f}元", f"- 当前回撤：{drawdown:.2%}", f"- 现金：{state['cash']:.2f}元", f"- 冠军模型：{model['version']}", f"- 候选模型：{'已晋级' if model['promoted'] else '未晋级'}，样本外适应度 {model['candidate_score']:.6f}", f"- GA权重：{tuple(round(x, 4) for x in weights)}", "", "## 模拟成交", ""]
+    report = [f"# 模拟盘日报 {trade_date}", "", f"- 信号日期：{signal_date}", f"- 数据来源：{metadata.get('source', 'unknown')}", f"- 全市场监控：{metadata.get('universe_size', len(grouped))}只", f"- 训练股票池：{len(grouped)}只（运行前已剔除ST）", f"- 市场状态：{market['regime']}，20日宽度 {market['breadth']:.2%}，中位20日收益 {market['median_return20']:.2%}", f"- 目标持仓：{target_count}只", f"- 高覆盖交易日：{len(covered_dates)}天", f"- 模拟权益：{equity:.2f}元", f"- 当前回撤：{drawdown:.2%}", f"- 现金：{state['cash']:.2f}元", f"- 冠军模型：{model['version']}", f"- 候选模型：{'已晋级' if model['promoted'] else '未晋级'}，样本外适应度 {model['candidate_score']:.6f}", f"- GA权重：{tuple(round(x, 4) for x in weights)}", "", "## 模拟成交", ""]
     report.extend([f"- {x}" for x in trades] or ["- 无"])
     report.extend(["", "## 当前持仓", ""])
     report.extend([f"- {s} {names.get(s, s)}: {p['shares']}股，模拟成本 {p['cost']:.2f}" for s, p in state["positions"].items()] or ["- 空仓"])
     report.extend(["", "## 当日排名", ""])
-    report.extend([f"- {symbol} {names.get(symbol, symbol)}：得分 {score:.6f}" for score, symbol in ranked[:10]])
+    report.extend([f"- {symbol} {names.get(symbol, symbol)}（{industries.get(symbol, '未分类')}）：综合得分 {score:.6f}" for score, symbol in ranked[:10]])
+    report.extend(["", "## 板块轮动", ""])
+    report.extend([f"- {sector}：板块强度 {score:.6f}" for sector, score in leading_sectors] or ["- 暂无足够样本"])
     report.extend(["", "> 仅用于模型训练和模拟验证，不构成实盘投资建议。"])
     out = report_dir / f"{trade_date}.md"
     out.write_text("\n".join(report) + "\n", encoding="utf-8")

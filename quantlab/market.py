@@ -26,7 +26,8 @@ def _secid(symbol: str) -> str:
 
 
 def market_symbol(symbol: str) -> str:
-    return ("sh" if _secid(symbol).startswith("1.") else "sz") + symbol
+    market = "bj" if symbol.startswith(("4", "8", "92")) else ("sh" if _secid(symbol).startswith("1.") else "sz")
+    return market + symbol
 
 
 def is_st_name(name: str) -> bool:
@@ -95,13 +96,16 @@ def update_market_csv(symbols: list[str], path: Path, limit: int = 500) -> Path:
     return path
 
 
-def update_tushare_market_csv(client: TushareClient, path: Path, universe_size: int = 100, history_days: int = 500, minimum_listing_days: int = 120) -> tuple[Path, dict]:
+def update_tushare_market_csv(client: TushareClient, path: Path, universe_size: int = 0, history_days: int = 500, minimum_listing_days: int = 120, training_universe_size: int = 500) -> tuple[Path, dict]:
     trade_date = client.latest_open_date()
     universe = build_liquid_universe(client, trade_date, universe_size, minimum_listing_days)
     if not universe:
         raise RuntimeError("Tushare没有返回合规股票池")
     start_date = (datetime.strptime(trade_date, "%Y%m%d") - timedelta(days=max(730, history_days * 2))).strftime("%Y%m%d")
-    names = {row["ts_code"]: row["name"] for row in universe}
+    path.with_name("universe.json").write_text(json.dumps(universe, ensure_ascii=False, indent=2), encoding="utf-8")
+    training_universe = universe[:training_universe_size] if training_universe_size > 0 else universe
+    names = {row["ts_code"]: row["name"] for row in training_universe}
+    industries = {row["ts_code"]: row["industry"] for row in training_universe}
     daily_rows, factor_rows = [], []
     codes = list(names)
     for offset in range(0, len(codes), 10):
@@ -131,15 +135,16 @@ def update_tushare_market_csv(client: TushareClient, path: Path, universe_size: 
                 "close": float(row["close"]) * ratio,
                 "volume": float(row["vol"]),
                 "name": names[code],
+                "industry": industries[code],
             })
     if not output:
         raise RuntimeError("Tushare股票池没有历史行情")
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    fields = ["date", "symbol", "open", "high", "low", "close", "volume", "name"]
+    fields = ["date", "symbol", "open", "high", "low", "close", "volume", "name", "industry"]
     with temporary.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(output)
     temporary.replace(path)
-    return path, {"source": "tushare", "trade_date": trade_date, "universe_size": len(grouped), "rows": len(output)}
+    return path, {"source": "tushare", "trade_date": trade_date, "universe_size": len(universe), "training_universe_size": len(grouped), "rows": len(output)}

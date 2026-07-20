@@ -68,6 +68,7 @@ class EngineTest(unittest.TestCase):
 
     def test_tushare_codes_and_universe_filters(self):
         self.assertEqual(to_ts_code("600000"), "600000.SH")
+        self.assertEqual(to_ts_code("920000"), "920000.BJ")
         self.assertEqual(from_ts_code("000001.SZ"), "000001")
         client = unittest.mock.Mock()
         client.query.side_effect = [

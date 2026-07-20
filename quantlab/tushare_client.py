@@ -60,7 +60,8 @@ class TushareClient:
 
 
 def to_ts_code(symbol: str) -> str:
-    return f"{symbol}.SH" if symbol.startswith(("5", "6", "9")) else f"{symbol}.SZ"
+    exchange = "BJ" if symbol.startswith(("4", "8", "92")) else ("SH" if symbol.startswith(("5", "6", "9")) else "SZ")
+    return f"{symbol}.{exchange}"
 
 
 def from_ts_code(ts_code: str) -> str:

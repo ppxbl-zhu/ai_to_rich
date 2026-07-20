@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 data/market.csv
 data/market.meta.json
+data/universe.json
 data/demo_market.csv
 data/realtime/
 state/
