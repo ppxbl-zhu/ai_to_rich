@@ -11,9 +11,28 @@ from quantlab.realtime import append_snapshot, ensure_fresh, in_trading_session
 from quantlab.tushare_client import from_ts_code, to_ts_code
 from quantlab.universe import build_liquid_universe
 from quantlab.trend import main_rise_setup
+from quantlab.backtest import calculate_metrics, chronological_split, _point_in_time_auxiliary
+import quantlab.backtest as backtest_module
 
 
 class EngineTest(unittest.TestCase):
+    def test_backtest_split_and_metrics(self):
+        dates = [f"d{i:03d}" for i in range(500)]
+        train, validation, test = chronological_split(dates)
+        self.assertEqual((len(train), len(validation), len(test)), (300, 100, 100))
+        metrics = calculate_metrics([100000, 101000, 99000, 110000], [1000, -500, 2000], 100000)
+        self.assertAlmostEqual(metrics.total_return, .10)
+        self.assertEqual(metrics.trades, 3)
+        self.assertAlmostEqual(metrics.win_rate, 2 / 3)
+
+    def test_auxiliary_features_are_lagged_one_session(self):
+        previous = backtest_module._AUXILIARY_SCORES
+        try:
+            backtest_module._AUXILIARY_SCORES = {"TEST": {"2026-01-01": (0.1, 0.2, 0.3), "2026-01-02": (0.9, 0.9, 0.9)}}
+            self.assertEqual(_point_in_time_auxiliary("TEST", ["2026-01-01", "2026-01-02"], 1), (0.1, 0.2, 0.3))
+        finally:
+            backtest_module._AUXILIARY_SCORES = previous
+
     def test_paper_run_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

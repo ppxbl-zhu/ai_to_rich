@@ -103,13 +103,27 @@ def update_tushare_market_csv(client: TushareClient, path: Path, universe_size: 
         raise RuntimeError("Tushare没有返回合规股票池")
     start_date = (datetime.strptime(trade_date, "%Y%m%d") - timedelta(days=max(730, history_days * 2))).strftime("%Y%m%d")
     path.with_name("universe.json").write_text(json.dumps(universe, ensure_ascii=False, indent=2), encoding="utf-8")
-    training_universe = universe[:training_universe_size] if training_universe_size > 0 else universe
+    training_path = path.with_name("training_universe.json")
+    desired = universe[:training_universe_size] if training_universe_size > 0 else universe
+    if training_path.exists():
+        pinned_codes = [row["ts_code"] for row in json.loads(training_path.read_text(encoding="utf-8"))]
+        current = {row["ts_code"]: row for row in universe}
+        training_universe = [current[code] for code in pinned_codes if code in current]
+        target_size = training_universe_size if training_universe_size > 0 else len(universe)
+        existing = {row["ts_code"] for row in training_universe}
+        training_universe.extend(row for row in universe if row["ts_code"] not in existing and len(training_universe) < target_size)
+    else:
+        training_universe = desired
+    training_path.write_text(json.dumps(training_universe, ensure_ascii=False, indent=2), encoding="utf-8")
     names = {row["ts_code"]: row["name"] for row in training_universe}
     industries = {row["ts_code"]: row["industry"] for row in training_universe}
     daily_rows, factor_rows = [], []
     codes = list(names)
-    for offset in range(0, len(codes), 10):
-        batch = ",".join(codes[offset:offset + 10])
+    # Tushare returns at most roughly 6,000 rows per request. Keep a safety
+    # margin so a five-year history is never silently truncated.
+    batch_size = max(1, min(10, 5500 // max(1, history_days)))
+    for offset in range(0, len(codes), batch_size):
+        batch = ",".join(codes[offset:offset + batch_size])
         daily_rows.extend(client.query("daily", {"ts_code": batch, "start_date": start_date, "end_date": trade_date}, "ts_code,trade_date,open,high,low,close,vol"))
         factor_rows.extend(client.query("adj_factor", {"ts_code": batch, "start_date": start_date, "end_date": trade_date}, "ts_code,trade_date,adj_factor"))
     limit_rows = client.query("stk_limit", {"trade_date": trade_date}, "ts_code,up_limit,down_limit")

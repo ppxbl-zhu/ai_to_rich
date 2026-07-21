@@ -7,14 +7,17 @@ from .market import update_market_csv, update_tushare_market_csv
 from .notifier import publish_pushplus
 from .realtime import monitor
 from .tushare_client import TushareClient
+from .backtest import run_backtest
+from .feature_store import backfill_features
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["demo", "fetch", "run", "daily", "monitor"])
+    parser.add_argument("command", choices=["demo", "fetch", "run", "daily", "monitor", "backtest", "features"])
     parser.add_argument("--interval", type=float, default=5, help="实时采样间隔（秒）")
     parser.add_argument("--minutes", type=float, default=240, help="监控持续时间（分钟）")
     parser.add_argument("--once", action="store_true", help="忽略交易时段，仅采集一次以便诊断")
+    parser.add_argument("--feature-limit", type=int, default=0, help="辅助特征回填股票数，0表示固定训练池全部")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     data = root / "data" / ("demo_market.csv" if args.command == "demo" else "market.csv")
@@ -23,6 +26,16 @@ def main() -> None:
         print(f"演示数据已生成：{data}")
         return
     config_path = root / "config.json"
+    if args.command == "features":
+        bars = load_bars(root / "data" / "market.csv")
+        dates = [bar.date for history in bars.values() for bar in history]
+        metadata = backfill_features(TushareClient.from_environment(), root / "data" / "training_universe.json", root / "data" / "features", min(dates).replace("-", ""), max(dates).replace("-", ""), limit=args.feature_limit)
+        print(json.dumps(metadata, ensure_ascii=False))
+        return
+    if args.command == "backtest":
+        report = run_backtest(config_path, data, root / "state", root / "reports")
+        print(report)
+        return
     if args.command == "monitor":
         config = json.loads(config_path.read_text(encoding="utf-8"))
         roster_path = root / "data" / "universe.json"

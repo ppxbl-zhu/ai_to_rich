@@ -3,8 +3,10 @@ __pycache__/
 data/market.csv
 data/market.meta.json
 data/universe.json
+data/training_universe.json
 data/demo_market.csv
 data/realtime/
+data/features/
 state/
 reports/
 .env
