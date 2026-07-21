@@ -171,7 +171,7 @@ def _score(metrics: BacktestMetrics) -> float:
     return metrics.annualized_return + .12 * metrics.sharpe - 1.5 * metrics.max_drawdown
 
 
-def optimize_parameters(grouped: dict[str, list[Bar]], industries: dict[str, str], validation: list[str], weights: tuple[float, float, float], cfg: dict, seed: int = 29) -> list[dict]:
+def optimize_parameters(grouped: dict[str, list[Bar]], industries: dict[str, str], validation: list[str], weights: tuple[float, float, float], cfg: dict, seed: int = 29, incumbent_params: dict | None = None) -> list[dict]:
     """Deterministic evolutionary search scored on two sequential validation folds."""
     rng = random.Random(seed)
     spaces = {
@@ -180,14 +180,17 @@ def optimize_parameters(grouped: dict[str, list[Bar]], industries: dict[str, str
         "setup_threshold": [.0, .15, .30, .45],
         "breadth_min": [.0, .35, .45, .55],
         "backtest_rebalance_days": [3, 5, 10, 15],
-        "initial_position_weight": [.08, .10, .15, .20],
-        "hard_stop_loss": [.05, .07, .09, .12],
-        "trailing_stop": [.05, .07, .09, .12],
+        # Risk policy is a hard ceiling, not a parameter the optimizer may loosen.
+        "initial_position_weight": [.05, .08, min(.10, cfg.get("initial_position_weight", .10))],
+        "hard_stop_loss": [.05, .07, min(.08, cfg.get("hard_stop_loss", .08))],
+        "trailing_stop": [.05, .07, min(.08, cfg.get("trailing_stop", .08))],
     }
     midpoint = len(validation) // 2
     folds = [validation[:midpoint], validation[midpoint:]]
     population = [{key: rng.choice(values) for key, values in spaces.items()} for _ in range(12)]
     population.append({"setup_weight": .50, "sector_weight": .25, "setup_threshold": 0, "breadth_min": 0, "backtest_rebalance_days": 5, "initial_position_weight": .10, "hard_stop_loss": .08, "trailing_stop": .08})
+    if incumbent_params and all(key in incumbent_params and incumbent_params[key] in values for key, values in spaces.items()):
+        population.append({key: incumbent_params[key] for key in spaces})
     evaluated: dict[str, dict] = {}
     for generation in range(3):
         for params in population:
@@ -216,20 +219,33 @@ def run_backtest(config_path: Path, data_path: Path, state_dir: Path, report_dir
     train_dates = set(train)
     train_set = {s: [b for b in bars if b.date in train_dates] for s, bars in grouped.items()}
     weights = evolve_weights(train_set, generations=12)
-    candidates = optimize_parameters(grouped, industries, validation, weights, cfg)
+    model_path = state_dir / "models" / "backtest_champion.json"
+    incumbent = json.loads(model_path.read_text(encoding="utf-8")) if model_path.exists() else None
+    search_state_path = state_dir / "models" / "backtest_search_state.json"
+    search_state = json.loads(search_state_path.read_text(encoding="utf-8")) if search_state_path.exists() else {"iteration": 1 if incumbent else 0}
+    iteration = int(search_state.get("iteration", 0)) + 1
+    search_seed = 29 + (iteration - 1) * 7919
+    candidates = optimize_parameters(grouped, industries, validation, weights, cfg, search_seed, incumbent.get("parameters") if incumbent else None)
     winner = candidates[0]
     winner_params = {key: winner[key] for key in ("setup_weight", "sector_weight", "setup_threshold", "breadth_min", "backtest_rebalance_days", "initial_position_weight", "hard_stop_loss", "trailing_stop")}
     validation_metrics, _ = _simulate(grouped, industries, validation, weights, winner_params, cfg)
     winner["validation"] = asdict(validation_metrics)
-    test_metrics, curve = _simulate(grouped, industries, test, weights, winner_params, cfg)
-    model = {"version": f"five-year-{date.today().isoformat()}", "weights": list(weights), "parameters": winner_params, "validation": winner["validation"], "test": asdict(test_metrics), "split": {"train": [train[0], train[-1]], "validation": [validation[0], validation[-1]], "test": [test[0], test[-1]]}}
-    model_path = state_dir / "models" / "backtest_champion.json"; model_path.parent.mkdir(parents=True, exist_ok=True)
-    incumbent = json.loads(model_path.read_text(encoding="utf-8")) if model_path.exists() else None
-    if incumbent is None or winner["score"] > incumbent.get("validation_score", -999) + cfg.get("model_promotion_margin", .001):
-        model["validation_score"] = winner["score"]; model_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
+    incumbent_risk_valid = bool(incumbent) and incumbent.get("parameters", {}).get("initial_position_weight", 1) <= cfg.get("initial_position_weight", .10) and incumbent.get("parameters", {}).get("hard_stop_loss", 1) <= cfg.get("hard_stop_loss", .08) and incumbent.get("parameters", {}).get("trailing_stop", 1) <= cfg.get("trailing_stop", .08)
+    incumbent_score = incumbent.get("validation_score", -999) if incumbent_risk_valid else -999
+    promoted = incumbent is None or winner["score"] > incumbent_score + cfg.get("model_promotion_margin", .001)
+    curve = []
+    if promoted:
+        test_metrics, curve = _simulate(grouped, industries, test, weights, winner_params, cfg)
+        model = {"version": f"five-year-{date.today().isoformat()}-i{iteration}", "weights": list(weights), "parameters": winner_params, "validation": winner["validation"], "test": asdict(test_metrics), "split": {"train": [train[0], train[-1]], "validation": [validation[0], validation[-1]], "test": [test[0], test[-1]]}, "validation_score": winner["score"], "search_seed": search_seed}
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        model_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
+    else:
+        model = incumbent
+        test_metrics = BacktestMetrics(**incumbent["test"])
+    search_state_path.write_text(json.dumps({"iteration": iteration, "last_seed": search_seed, "candidate_score": winner["score"], "champion_score": model["validation_score"], "promoted": promoted}, ensure_ascii=False, indent=2), encoding="utf-8")
     report_dir.mkdir(parents=True, exist_ok=True)
     report = report_dir / f"backtest-{date.today().isoformat()}.md"
     m = test_metrics
-    report.write_text(f"""# 五年历史回测\n\n- 样本：{len(grouped)} 只（已剔除当前名称含 ST 的股票），{dates[0]} 至 {dates[-1]}\n- 训练：{train[0]} 至 {train[-1]}\n- 双折验证选参：{validation[0]} 至 {validation[-1]}\n- 隔离测试：{test[0]} 至 {test[-1]}\n- 初始资金：{cfg['initial_cash']:,.0f} 元\n- 搜索候选：{len(candidates)} 组，3代进化\n- 参数：{json.dumps(winner_params, ensure_ascii=False)}\n- 动量权重：{tuple(round(x, 4) for x in weights)}\n\n## 验证期结果\n\n- 总收益率：{validation_metrics.total_return:.2%}\n- 最大回撤：{validation_metrics.max_drawdown:.2%}\n- 胜率：{validation_metrics.win_rate:.2%}\n\n## 隔离测试结果\n\n- 总收益率：{m.total_return:.2%}\n- 年化收益率：{m.annualized_return:.2%}\n- 最大回撤：{m.max_drawdown:.2%}\n- Sharpe：{m.sharpe:.2f}\n- 完整交易：{m.trades}\n- 胜率：{m.win_rate:.2%}\n- 盈亏比：{m.profit_factor:.2f}\n- 期末权益：{m.final_equity:,.2f} 元\n\n## 口径与限制\n\n信号仅使用当时可见的收盘数据，下一交易日开盘成交；已计佣金、卖出印花税、滑点和100股整数手。当前版本使用今天仍上市且流动性靠前的股票池，存在幸存者偏差；历史 ST/退市状态和逐日涨跌停限制尚未完全点时还原，结果不能视为实盘收益承诺。自动迭代只依据双折验证成绩晋级，隔离测试集不参与参数搜索。\n""", encoding="utf-8")
+    report.write_text(f"""# 五年历史回测\n\n- 样本：{len(grouped)} 只（已剔除当前名称含 ST 的股票），{dates[0]} 至 {dates[-1]}\n- 训练：{train[0]} 至 {train[-1]}\n- 双折验证选参：{validation[0]} 至 {validation[-1]}\n- 隔离测试：{test[0]} 至 {test[-1]}\n- 初始资金：{cfg['initial_cash']:,.0f} 元\n- 增量搜索：第 {iteration} 轮，种子 {search_seed}，候选 {len(candidates)} 组\n- 晋级：{'是' if promoted else '否，继续使用上一冠军'}\n- 本轮候选参数：{json.dumps(winner_params, ensure_ascii=False)}\n- 动量权重：{tuple(round(x, 4) for x in weights)}\n\n## 本轮验证结果\n\n- 总收益率：{validation_metrics.total_return:.2%}\n- 最大回撤：{validation_metrics.max_drawdown:.2%}\n- 胜率：{validation_metrics.win_rate:.2%}\n- 稳定性分数：{winner['score']:.4f}（原冠军 {incumbent_score:.4f}）\n\n## 当前冠军隔离测试结果\n\n- 总收益率：{m.total_return:.2%}\n- 年化收益率：{m.annualized_return:.2%}\n- 最大回撤：{m.max_drawdown:.2%}\n- Sharpe：{m.sharpe:.2f}\n- 完整交易：{m.trades}\n- 胜率：{m.win_rate:.2%}\n- 盈亏比：{m.profit_factor:.2f}\n- 期末权益：{m.final_equity:,.2f} 元\n\n## 口径与限制\n\n信号仅使用当时可见的收盘数据，下一交易日开盘成交；已计佣金、卖出印花税、滑点和100股整数手。当前版本使用今天仍上市且流动性靠前的股票池，存在幸存者偏差；历史 ST/退市状态和逐日涨跌停限制尚未完全点时还原，结果不能视为实盘收益承诺。自动迭代只依据双折验证成绩晋级；未晋级候选不会触碰隔离测试集。\n""", encoding="utf-8")
     report.with_suffix(".json").write_text(json.dumps({"model": model, "candidates": candidates, "equity_curve": curve}, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
