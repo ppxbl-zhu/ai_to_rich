@@ -4,12 +4,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from quantlab.engine import load_bars, make_demo, return_correlation, run_paper
+from quantlab.engine import Bar, load_bars, make_demo, return_correlation, run_paper
 from quantlab.market import _secid, is_st_name, update_market_csv
 from quantlab.notifier import publish_pushplus
 from quantlab.realtime import append_snapshot, ensure_fresh, in_trading_session
 from quantlab.tushare_client import from_ts_code, to_ts_code
 from quantlab.universe import build_liquid_universe
+from quantlab.trend import main_rise_setup
 
 
 class EngineTest(unittest.TestCase):
@@ -72,6 +73,16 @@ class EngineTest(unittest.TestCase):
             make_demo(data, 90)
             bars = load_bars(data)["600000"]
             self.assertAlmostEqual(return_correlation(bars, bars), 1.0)
+
+    def test_main_rise_setup_recognizes_orderly_uptrend(self):
+        bars = []
+        price = 10.0
+        for index in range(100):
+            price *= 1.003
+            bars.append(Bar(f"2026-01-{index + 1:03d}", "TEST", price * .998, price * 1.004, price * .996, price, 1_000_000 + index * 10_000))
+        setup = main_rise_setup(bars)
+        self.assertGreater(setup.score, 0)
+        self.assertNotEqual(setup.phase, "趋势衰减")
 
     def test_tushare_codes_and_universe_filters(self):
         self.assertEqual(to_ts_code("600000"), "600000.SH")

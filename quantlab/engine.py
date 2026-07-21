@@ -9,6 +9,8 @@ from dataclasses import dataclass, asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from .trend import main_rise_setup
+
 
 @dataclass(frozen=True)
 class Bar:
@@ -92,28 +94,36 @@ def momentum_score(bars: list[Bar], weights: tuple[float, float, float]) -> floa
     return weights[0] * ret20 + weights[1] * ret60 - weights[2] * vol + 0.0001 * liquidity
 
 
-def walk_forward_metrics(grouped: dict[str, list[Bar]], weights: tuple[float, float, float]) -> dict:
+def walk_forward_metrics(grouped: dict[str, list[Bar]], weights: tuple[float, float, float], segment: str = "validation") -> dict:
     observations = []
     for bars in grouped.values():
-        for i in range(80, len(bars) - 6, 20):
+        cutoff = max(100, int(len(bars) * .8))
+        start = 80 if segment == "train" else cutoff
+        stop = min(cutoff, len(bars) - 20) if segment == "train" else len(bars) - 20
+        for i in range(start, stop, 20):
             score = momentum_score(bars[:i], weights)
-            future = bars[i + 5].close / bars[i].close - 1
-            observations.append((score, future))
+            base = bars[i - 1].close
+            future_path = bars[i:i + 20]
+            return10 = future_path[9].close / base - 1
+            max_gain = max(bar.high for bar in future_path) / base - 1
+            max_drawdown = min(bar.low for bar in future_path) / base - 1
+            main_rise_hit = max_gain >= .15 and max_drawdown >= -.08
+            observations.append((score, return10, main_rise_hit))
     if len(observations) < 10:
         return {"fitness": -999.0, "spread": 0.0, "win_rate": 0.0, "relative_win_rate": 0.0, "observations": len(observations)}
-    observations.sort()
+    observations.sort(key=lambda item: item[0])
     q = max(1, len(observations) // 5)
     top = observations[-q:]
     spread = sum(x[1] for x in top) / q - sum(x[1] for x in observations[:q]) / q
-    win_rate = sum(future > 0 for _, future in top) / q
-    baseline_win_rate = sum(future > 0 for _, future in observations) / len(observations)
+    win_rate = sum(hit for _, _, hit in top) / q
+    baseline_win_rate = sum(hit for _, _, hit in observations) / len(observations)
     relative_win_rate = win_rate - baseline_win_rate
     complexity = .002 * sum(abs(x) for x in weights)
     return {"fitness": spread + .02 * relative_win_rate - complexity, "spread": spread, "win_rate": win_rate, "relative_win_rate": relative_win_rate, "observations": len(observations)}
 
 
 def walk_forward_fitness(grouped: dict[str, list[Bar]], weights: tuple[float, float, float]) -> float:
-    return walk_forward_metrics(grouped, weights)["fitness"]
+    return walk_forward_metrics(grouped, weights, "train")["fitness"]
 
 
 def evolve_weights(grouped: dict[str, list[Bar]], seed: int = 7, generations: int = 20) -> tuple[float, float, float]:
@@ -133,10 +143,10 @@ def evolve_weights(grouped: dict[str, list[Bar]], seed: int = 7, generations: in
 
 def choose_champion(grouped: dict[str, list[Bar]], model_path: Path, trained_date: str, promotion_margin: float = .001) -> dict:
     candidate = evolve_weights(grouped)
-    candidate_metrics = walk_forward_metrics(grouped, candidate)
+    candidate_metrics = walk_forward_metrics(grouped, candidate, "validation")
     candidate_score = candidate_metrics["fitness"]
     incumbent = json.loads(model_path.read_text(encoding="utf-8")) if model_path.exists() else None
-    incumbent_score = walk_forward_fitness(grouped, tuple(incumbent["weights"])) if incumbent else -999.0
+    incumbent_score = walk_forward_metrics(grouped, tuple(incumbent["weights"]), "validation")["fitness"] if incumbent else -999.0
     promoted = incumbent is None or candidate_score >= incumbent_score + promotion_margin
     if promoted:
         champion = {
@@ -181,13 +191,15 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
     model = choose_champion(grouped, state_dir / "models" / "champion.json", signal_date, cfg.get("model_promotion_margin", .001))
     weights = model["weights"]
     base_scores = {symbol: momentum_score(bars, weights) for symbol, bars in histories.items()}
+    setups = {symbol: main_rise_setup(bars) for symbol, bars in histories.items()}
     sector_members = {}
     for symbol, score in base_scores.items():
         if score > -900:
             sector_members.setdefault(industries.get(symbol, "未分类"), []).append(score)
     sector_scores = {sector: statistics.mean(scores) for sector, scores in sector_members.items() if len(scores) >= 2}
     sector_weight = cfg.get("sector_rotation_weight", .25)
-    ranked = sorted(((score + sector_weight * sector_scores.get(industries.get(symbol, "未分类"), 0), symbol) for symbol, score in base_scores.items()), reverse=True)
+    setup_weight = cfg.get("main_rise_setup_weight", .50)
+    ranked = sorted(((score + sector_weight * sector_scores.get(industries.get(symbol, "未分类"), 0) + setup_weight * setups[symbol].score, symbol) for symbol, score in base_scores.items()), reverse=True)
     market = assess_market(histories)
     leading_sectors = sorted(sector_scores.items(), key=lambda item: item[1], reverse=True)[:10]
 
@@ -213,7 +225,8 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
         target_count = cfg["max_positions"]
     regime_factor = {"强势": 1.0, "震荡": cfg.get("neutral_exposure", .8), "弱势": cfg.get("weak_exposure", .4), "未知": .4}[market["regime"]]
     target_count = 0 if target_count == 0 else max(1, round(target_count * regime_factor))
-    selected = [s for score, s in ranked if score > -900][:target_count * 5]
+    entry_phases = {"突破待确认", "主升持有"}
+    selected = [s for score, s in ranked if score > -900 and setups[s].phase in entry_phases][:target_count * 8]
     rank_index = {symbol: index for index, (_, symbol) in enumerate(ranked)}
     rebalance_frequency = cfg.get("rebalance_frequency", "daily")
     is_rebalance = rebalance_frequency == "daily" or datetime.fromisoformat(trade_date).weekday() == cfg.get("rebalance_weekday", 0)
@@ -230,7 +243,7 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
                 exit_reasons[symbol] = "硬止损"
             elif position["high_price"] >= position["cost"] * (1 + cfg.get("trailing_activation", .05)) and signal_price <= position["high_price"] * (1 - cfg.get("trailing_stop", .08)):
                 exit_reasons[symbol] = "移动止损"
-            elif cfg.get("trend_exit", True) and len(signal_history) >= 20 and signal_price < statistics.mean(bar.close for bar in signal_history[-20:]) and base_scores.get(symbol, 0) < 0:
+            elif cfg.get("trend_exit", True) and setups.get(symbol) and setups[symbol].phase == "趋势衰减":
                 exit_reasons[symbol] = "趋势失效"
         if drawdown >= cfg["halt_drawdown"]:
             exit_reasons[symbol] = "组合回撤熔断"
@@ -296,7 +309,7 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
     state["last_date"] = trade_date
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     candidate_metrics = model["candidate_metrics"]
-    report = [f"# 模拟盘日报 {trade_date}", "", f"- 信号日期：{signal_date}", f"- 数据来源：{metadata.get('source', 'unknown')}", f"- 全市场监控：{metadata.get('universe_size', len(grouped))}只", f"- 训练股票池：{len(grouped)}只（运行前已剔除ST）", f"- 市场状态：{market['regime']}，20日宽度 {market['breadth']:.2%}，中位20日收益 {market['median_return20']:.2%}", f"- 目标持仓：{target_count}只", f"- 高覆盖交易日：{len(covered_dates)}天", f"- 模拟权益：{equity:.2f}元", f"- 当前回撤：{drawdown:.2%}", f"- 现金：{state['cash']:.2f}元", f"- 冠军模型：{model['version']}", f"- 候选模型：{'已晋级' if model['promoted'] else '未晋级'}，样本外适应度 {model['candidate_score']:.6f}", f"- 候选顶部组合胜率：{candidate_metrics['win_rate']:.2%}，相对全样本 {candidate_metrics['relative_win_rate']:+.2%}", f"- GA权重：{tuple(round(x, 4) for x in weights)}", "", "## 模拟成交", ""]
+    report = [f"# 模拟盘日报 {trade_date}", "", f"- 策略版本：主升波段 v1", f"- 信号日期：{signal_date}", f"- 数据来源：{metadata.get('source', 'unknown')}", f"- 全市场监控：{metadata.get('universe_size', len(grouped))}只", f"- 训练股票池：{len(grouped)}只（运行前已剔除ST）", f"- 市场状态：{market['regime']}，20日宽度 {market['breadth']:.2%}，中位20日收益 {market['median_return20']:.2%}", f"- 目标持仓：{target_count}只", f"- 高覆盖交易日：{len(covered_dates)}天", f"- 模拟权益：{equity:.2f}元", f"- 当前回撤：{drawdown:.2%}", f"- 现金：{state['cash']:.2f}元", f"- 冠军模型：{model['version']}", f"- 候选模型：{'已晋级' if model['promoted'] else '未晋级'}，样本外适应度 {model['candidate_score']:.6f}", f"- 未来20日主升命中率：{candidate_metrics['win_rate']:.2%}，相对全样本 {candidate_metrics['relative_win_rate']:+.2%}", f"- GA权重：{tuple(round(x, 4) for x in weights)}", "", "## 模拟成交", ""]
     report.extend([f"- {x}" for x in trades] or ["- 无"])
     report.extend(["", "## 风控事件", ""])
     report.extend([f"- {event}" for event in risk_events] or ["- 无"])
@@ -305,7 +318,7 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
     report.extend(["", "## 当前持仓", ""])
     report.extend([f"- {s} {names.get(s, s)}: {p['shares']}股，模拟成本 {p['cost']:.2f}，持仓峰值 {p.get('high_price', p['cost']):.2f}" for s, p in state["positions"].items()] or ["- 空仓"])
     report.extend(["", "## 当日排名", ""])
-    report.extend([f"- {symbol} {names.get(symbol, symbol)}（{industries.get(symbol, '未分类')}）：综合得分 {score:.6f}" for score, symbol in ranked[:10]])
+    report.extend([f"- {symbol} {names.get(symbol, symbol)}（{industries.get(symbol, '未分类')}）：{setups[symbol].phase}，综合得分 {score:.6f}，结构分 {setups[symbol].score:.4f}" for score, symbol in ranked[:10]])
     report.extend(["", "## 板块轮动", ""])
     report.extend([f"- {sector}：板块强度 {score:.6f}" for sector, score in leading_sectors] or ["- 暂无足够样本"])
     report.extend(["", "> 仅用于模型训练和模拟验证，不构成实盘投资建议。"])

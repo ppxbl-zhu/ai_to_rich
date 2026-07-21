@@ -28,6 +28,9 @@
   "minimum_listing_days": 120,
   "model_promotion_margin": 0.001,
   "sector_rotation_weight": 0.25,
+  "main_rise_setup_weight": 0.50,
+  "main_rise_target_gain": 0.15,
+  "main_rise_max_drawdown": 0.08,
   "neutral_exposure": 0.80,
   "weak_exposure": 0.40,
   "watchlist": ["600000", "600036", "600519", "000001", "000333", "000651", "300750", "002594"]
