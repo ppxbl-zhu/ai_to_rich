@@ -22,7 +22,7 @@
   "rebalance_frequency": "daily",
   "data_source": "tushare",
   "allow_public_fallback": true,
-  "history_days": 500,
+  "history_days": 1300,
   "universe_size": 0,
   "training_universe_size": 500,
   "minimum_listing_days": 120,
@@ -31,6 +31,9 @@
   "main_rise_setup_weight": 0.50,
   "main_rise_target_gain": 0.15,
   "main_rise_max_drawdown": 0.08,
+  "backtest_train_ratio": 0.60,
+  "backtest_validation_ratio": 0.20,
+  "backtest_rebalance_days": 5,
   "neutral_exposure": 0.80,
   "weak_exposure": 0.40,
   "watchlist": ["600000", "600036", "600519", "000001", "000333", "000651", "300750", "002594"]

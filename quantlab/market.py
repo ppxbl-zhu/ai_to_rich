@@ -108,8 +108,11 @@ def update_tushare_market_csv(client: TushareClient, path: Path, universe_size: 
     industries = {row["ts_code"]: row["industry"] for row in training_universe}
     daily_rows, factor_rows = [], []
     codes = list(names)
-    for offset in range(0, len(codes), 10):
-        batch = ",".join(codes[offset:offset + 10])
+    # Tushare returns at most roughly 6,000 rows per request. Keep a safety
+    # margin so a five-year history is never silently truncated.
+    batch_size = max(1, min(10, 5500 // max(1, history_days)))
+    for offset in range(0, len(codes), batch_size):
+        batch = ",".join(codes[offset:offset + batch_size])
         daily_rows.extend(client.query("daily", {"ts_code": batch, "start_date": start_date, "end_date": trade_date}, "ts_code,trade_date,open,high,low,close,vol"))
         factor_rows.extend(client.query("adj_factor", {"ts_code": batch, "start_date": start_date, "end_date": trade_date}, "ts_code,trade_date,adj_factor"))
     limit_rows = client.query("stk_limit", {"trade_date": trade_date}, "ts_code,up_limit,down_limit")

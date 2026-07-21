@@ -7,11 +7,12 @@ from .market import update_market_csv, update_tushare_market_csv
 from .notifier import publish_pushplus
 from .realtime import monitor
 from .tushare_client import TushareClient
+from .backtest import run_backtest
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["demo", "fetch", "run", "daily", "monitor"])
+    parser.add_argument("command", choices=["demo", "fetch", "run", "daily", "monitor", "backtest"])
     parser.add_argument("--interval", type=float, default=5, help="实时采样间隔（秒）")
     parser.add_argument("--minutes", type=float, default=240, help="监控持续时间（分钟）")
     parser.add_argument("--once", action="store_true", help="忽略交易时段，仅采集一次以便诊断")
@@ -23,6 +24,10 @@ def main() -> None:
         print(f"演示数据已生成：{data}")
         return
     config_path = root / "config.json"
+    if args.command == "backtest":
+        report = run_backtest(config_path, data, root / "state", root / "reports")
+        print(report)
+        return
     if args.command == "monitor":
         config = json.loads(config_path.read_text(encoding="utf-8"))
         roster_path = root / "data" / "universe.json"
