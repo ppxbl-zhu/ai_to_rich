@@ -112,6 +112,8 @@ def update_tushare_market_csv(client: TushareClient, path: Path, universe_size: 
         batch = ",".join(codes[offset:offset + 10])
         daily_rows.extend(client.query("daily", {"ts_code": batch, "start_date": start_date, "end_date": trade_date}, "ts_code,trade_date,open,high,low,close,vol"))
         factor_rows.extend(client.query("adj_factor", {"ts_code": batch, "start_date": start_date, "end_date": trade_date}, "ts_code,trade_date,adj_factor"))
+    limit_rows = client.query("stk_limit", {"trade_date": trade_date}, "ts_code,up_limit,down_limit")
+    limits = {row["ts_code"]: row for row in limit_rows}
     factors = {(row["ts_code"], row["trade_date"]): float(row["adj_factor"]) for row in factor_rows}
     latest_factor = {}
     for row in factor_rows:
@@ -136,12 +138,14 @@ def update_tushare_market_csv(client: TushareClient, path: Path, universe_size: 
                 "volume": float(row["vol"]),
                 "name": names[code],
                 "industry": industries[code],
+                "up_limit": limits.get(code, {}).get("up_limit", "") if row["trade_date"] == trade_date else "",
+                "down_limit": limits.get(code, {}).get("down_limit", "") if row["trade_date"] == trade_date else "",
             })
     if not output:
         raise RuntimeError("Tushare股票池没有历史行情")
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    fields = ["date", "symbol", "open", "high", "low", "close", "volume", "name", "industry"]
+    fields = ["date", "symbol", "open", "high", "low", "close", "volume", "name", "industry", "up_limit", "down_limit"]
     with temporary.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()

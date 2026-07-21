@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from quantlab.engine import make_demo, run_paper
+from quantlab.engine import load_bars, make_demo, return_correlation, run_paper
 from quantlab.market import _secid, is_st_name, update_market_csv
 from quantlab.notifier import publish_pushplus
 from quantlab.realtime import append_snapshot, ensure_fresh, in_trading_session
@@ -65,6 +65,13 @@ class EngineTest(unittest.TestCase):
     def test_pushplus_is_optional(self):
         with patch.dict("os.environ", {}, clear=True):
             self.assertFalse(publish_pushplus("title", "body"))
+
+    def test_identical_return_series_are_highly_correlated(self):
+        with tempfile.TemporaryDirectory() as td:
+            data = Path(td) / "demo.csv"
+            make_demo(data, 90)
+            bars = load_bars(data)["600000"]
+            self.assertAlmostEqual(return_correlation(bars, bars), 1.0)
 
     def test_tushare_codes_and_universe_filters(self):
         self.assertEqual(to_ts_code("600000"), "600000.SH")

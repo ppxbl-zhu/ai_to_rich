@@ -6,7 +6,7 @@ import math
 import random
 import statistics
 from dataclasses import dataclass, asdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 
@@ -40,6 +40,34 @@ def load_names(path: Path) -> dict[str, str]:
 def load_industries(path: Path) -> dict[str, str]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         return {row["symbol"]: (row.get("industry") or "未分类") for row in csv.DictReader(handle)}
+
+
+def load_trade_constraints(path: Path, trade_date: str) -> dict[str, dict[str, float]]:
+    constraints = {}
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            if row["date"] != trade_date:
+                continue
+            constraints[row["symbol"]] = {
+                key: float(row[key]) for key in ("up_limit", "down_limit") if row.get(key) not in (None, "")
+            }
+    return constraints
+
+
+def return_correlation(left: list[Bar], right: list[Bar], window: int = 60) -> float:
+    left_prices = {bar.date: bar.close for bar in left}
+    right_prices = {bar.date: bar.close for bar in right}
+    dates = sorted(set(left_prices) & set(right_prices))[-(window + 1):]
+    if len(dates) < 21:
+        return 0.0
+    a = [left_prices[b] / left_prices[a] - 1 for a, b in zip(dates, dates[1:]) if left_prices[a] > 0 and right_prices[a] > 0]
+    b = [right_prices[next_day] / right_prices[day] - 1 for day, next_day in zip(dates, dates[1:]) if left_prices[day] > 0 and right_prices[day] > 0]
+    if len(a) != len(b) or len(a) < 20:
+        return 0.0
+    mean_a, mean_b = statistics.mean(a), statistics.mean(b)
+    numerator = sum((x - mean_a) * (y - mean_b) for x, y in zip(a, b))
+    denominator = math.sqrt(sum((x - mean_a) ** 2 for x in a) * sum((y - mean_b) ** 2 for y in b))
+    return numerator / denominator if denominator else 0.0
 
 
 def assess_market(histories: dict[str, list[Bar]]) -> dict:
@@ -171,38 +199,98 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
         return report_dir / f"{trade_date}.md"
 
     opens = {s: next(b.open for b in bars if b.date == trade_date) for s, bars in grouped.items()}
+    constraints = load_trade_constraints(data_path, trade_date)
     equity = state["cash"] + sum(p["shares"] * opens.get(s, p["last_price"]) for s, p in state["positions"].items())
     state["peak"] = max(state["peak"], equity)
     drawdown = 1 - equity / state["peak"]
-    target_count = 0 if drawdown >= cfg["halt_drawdown"] else (2 if drawdown >= cfg["defensive_drawdown"] else cfg["max_positions"])
+    if drawdown >= cfg["halt_drawdown"]:
+        target_count = 0
+    elif drawdown >= cfg["defensive_drawdown"]:
+        target_count = min(2, cfg["max_positions"])
+    elif drawdown >= cfg["risk_reduce_drawdown"]:
+        target_count = max(1, round(cfg["max_positions"] * cfg.get("risk_reduce_exposure", .6)))
+    else:
+        target_count = cfg["max_positions"]
     regime_factor = {"强势": 1.0, "震荡": cfg.get("neutral_exposure", .8), "弱势": cfg.get("weak_exposure", .4), "未知": .4}[market["regime"]]
     target_count = 0 if target_count == 0 else max(1, round(target_count * regime_factor))
     selected = [s for score, s in ranked if score > -900][:target_count * 5]
+    rank_index = {symbol: index for index, (_, symbol) in enumerate(ranked)}
+    rebalance_frequency = cfg.get("rebalance_frequency", "daily")
+    is_rebalance = rebalance_frequency == "daily" or datetime.fromisoformat(trade_date).weekday() == cfg.get("rebalance_weekday", 0)
 
     trades = []
-    for symbol in list(state["positions"]):
-        if symbol not in selected:
-            p = state["positions"].pop(symbol)
-            px = opens.get(symbol, p["last_price"]) * (1 - cfg["slippage_rate"])
-            gross = p["shares"] * px
-            fee = max(cfg["minimum_commission"], gross * cfg["commission_rate"]) + gross * cfg["stamp_duty_sell"]
-            state["cash"] += gross - fee
-            trades.append(f"卖出 {symbol} {names.get(symbol, symbol)} {p['shares']}股 @ {px:.2f}")
+    risk_events, rejected = [], []
+    exit_reasons = {}
+    for symbol, position in state["positions"].items():
+        signal_history = [bar for bar in grouped.get(symbol, []) if bar.date <= signal_date]
+        if signal_history:
+            signal_price = signal_history[-1].close
+            position["high_price"] = max(position.get("high_price", position["cost"]), signal_price)
+            if signal_price <= position["cost"] * (1 - cfg.get("hard_stop_loss", .08)):
+                exit_reasons[symbol] = "硬止损"
+            elif position["high_price"] >= position["cost"] * (1 + cfg.get("trailing_activation", .05)) and signal_price <= position["high_price"] * (1 - cfg.get("trailing_stop", .08)):
+                exit_reasons[symbol] = "移动止损"
+            elif cfg.get("trend_exit", True) and len(signal_history) >= 20 and signal_price < statistics.mean(bar.close for bar in signal_history[-20:]) and base_scores.get(symbol, 0) < 0:
+                exit_reasons[symbol] = "趋势失效"
+        if drawdown >= cfg["halt_drawdown"]:
+            exit_reasons[symbol] = "组合回撤熔断"
+        elif is_rebalance and symbol not in selected and symbol not in exit_reasons:
+            exit_reasons[symbol] = "排名退出"
+    remaining = [symbol for symbol in state["positions"] if symbol not in exit_reasons]
+    excess = max(0, len(remaining) - target_count)
+    for symbol in sorted(remaining, key=lambda item: rank_index.get(item, 10**9), reverse=True)[:excess]:
+        exit_reasons[symbol] = "组合降仓"
 
-    budget = equity * cfg["initial_position_weight"]
-    for symbol in selected:
-        if len(state["positions"]) >= target_count:
-            break
-        if symbol in state["positions"]:
+    for symbol, reason in exit_reasons.items():
+        p = state["positions"][symbol]
+        limit = constraints.get(symbol, {})
+        if symbol not in opens:
+            rejected.append(f"{symbol} {names.get(symbol, symbol)} 卖出失败：停牌或无开盘价（{reason}）")
             continue
-        px = opens[symbol] * (1 + cfg["slippage_rate"])
-        shares = int(budget / px / cfg["lot_size"]) * cfg["lot_size"]
-        gross = shares * px
-        fee = max(cfg["minimum_commission"], gross * cfg["commission_rate"]) if shares else 0
-        if shares and gross + fee <= state["cash"]:
-            state["cash"] -= gross + fee
-            state["positions"][symbol] = {"shares": shares, "cost": px, "last_price": px}
-            trades.append(f"买入 {symbol} {names.get(symbol, symbol)} {shares}股 @ {px:.2f}")
+        if limit.get("down_limit") and opens[symbol] <= limit["down_limit"] * 1.001:
+            rejected.append(f"{symbol} {names.get(symbol, symbol)} 卖出失败：开盘跌停（{reason}）")
+            continue
+        state["positions"].pop(symbol)
+        px = opens[symbol] * (1 - cfg["slippage_rate"])
+        gross = p["shares"] * px
+        fee = max(cfg["minimum_commission"], gross * cfg["commission_rate"]) + gross * cfg["stamp_duty_sell"]
+        state["cash"] += gross - fee
+        trades.append(f"卖出 {symbol} {names.get(symbol, symbol)} {p['shares']}股 @ {px:.2f}（{reason}）")
+        risk_events.append(f"{symbol} {reason}")
+
+    budget = equity * min(cfg["initial_position_weight"], cfg["max_position_weight"])
+    if is_rebalance:
+        for symbol in selected:
+            if len(state["positions"]) >= target_count:
+                break
+            if symbol in state["positions"]:
+                continue
+            if symbol not in opens:
+                rejected.append(f"{symbol} {names.get(symbol, symbol)} 买入跳过：停牌或无开盘价")
+                continue
+            limit = constraints.get(symbol, {})
+            if limit.get("up_limit") and opens[symbol] >= limit["up_limit"] * .999:
+                rejected.append(f"{symbol} {names.get(symbol, symbol)} 买入跳过：开盘涨停")
+                continue
+            sector = industries.get(symbol, "未分类")
+            sector_count = sum(industries.get(held, "未分类") == sector for held in state["positions"])
+            if sector_count >= cfg.get("max_sector_positions", 2):
+                rejected.append(f"{symbol} {names.get(symbol, symbol)} 买入跳过：行业集中度上限")
+                continue
+            correlated = [held for held in state["positions"] if held in histories and return_correlation(histories[symbol], histories[held]) >= cfg.get("max_pairwise_correlation", .85)]
+            if correlated:
+                rejected.append(f"{symbol} {names.get(symbol, symbol)} 买入跳过：与 {correlated[0]} 相关性过高")
+                continue
+            px = opens[symbol] * (1 + cfg["slippage_rate"])
+            shares = int(budget / px / cfg["lot_size"]) * cfg["lot_size"]
+            gross = shares * px
+            fee = max(cfg["minimum_commission"], gross * cfg["commission_rate"]) if shares else 0
+            if shares and gross / equity <= cfg["max_position_weight"] and gross + fee <= state["cash"]:
+                state["cash"] -= gross + fee
+                state["positions"][symbol] = {"shares": shares, "cost": px, "last_price": px, "high_price": px}
+                trades.append(f"买入 {symbol} {names.get(symbol, symbol)} {shares}股 @ {px:.2f}")
+            elif not shares:
+                rejected.append(f"{symbol} {names.get(symbol, symbol)} 买入跳过：单仓预算不足100股")
     for symbol, p in state["positions"].items():
         p["last_price"] = opens.get(symbol, p["last_price"])
     state["last_date"] = trade_date
@@ -210,8 +298,12 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
     candidate_metrics = model["candidate_metrics"]
     report = [f"# 模拟盘日报 {trade_date}", "", f"- 信号日期：{signal_date}", f"- 数据来源：{metadata.get('source', 'unknown')}", f"- 全市场监控：{metadata.get('universe_size', len(grouped))}只", f"- 训练股票池：{len(grouped)}只（运行前已剔除ST）", f"- 市场状态：{market['regime']}，20日宽度 {market['breadth']:.2%}，中位20日收益 {market['median_return20']:.2%}", f"- 目标持仓：{target_count}只", f"- 高覆盖交易日：{len(covered_dates)}天", f"- 模拟权益：{equity:.2f}元", f"- 当前回撤：{drawdown:.2%}", f"- 现金：{state['cash']:.2f}元", f"- 冠军模型：{model['version']}", f"- 候选模型：{'已晋级' if model['promoted'] else '未晋级'}，样本外适应度 {model['candidate_score']:.6f}", f"- 候选顶部组合胜率：{candidate_metrics['win_rate']:.2%}，相对全样本 {candidate_metrics['relative_win_rate']:+.2%}", f"- GA权重：{tuple(round(x, 4) for x in weights)}", "", "## 模拟成交", ""]
     report.extend([f"- {x}" for x in trades] or ["- 无"])
+    report.extend(["", "## 风控事件", ""])
+    report.extend([f"- {event}" for event in risk_events] or ["- 无"])
+    report.extend(["", "## 未成交与拒绝", ""])
+    report.extend([f"- {item}" for item in rejected] or ["- 无"])
     report.extend(["", "## 当前持仓", ""])
-    report.extend([f"- {s} {names.get(s, s)}: {p['shares']}股，模拟成本 {p['cost']:.2f}" for s, p in state["positions"].items()] or ["- 空仓"])
+    report.extend([f"- {s} {names.get(s, s)}: {p['shares']}股，模拟成本 {p['cost']:.2f}，持仓峰值 {p.get('high_price', p['cost']):.2f}" for s, p in state["positions"].items()] or ["- 空仓"])
     report.extend(["", "## 当日排名", ""])
     report.extend([f"- {symbol} {names.get(symbol, symbol)}（{industries.get(symbol, '未分类')}）：综合得分 {score:.6f}" for score, symbol in ranked[:10]])
     report.extend(["", "## 板块轮动", ""])
