@@ -10,6 +10,19 @@ from pathlib import Path
 
 from .engine import Bar, evolve_weights, load_bars, load_industries, load_names, momentum_score
 from .trend import main_rise_setup
+from .feature_store import load_feature_scores
+
+
+_SIMULATION_CACHE: dict[int, tuple[dict, dict]] = {}
+_DAY_SIGNAL_CACHE: dict[tuple[int, str, tuple], dict] = {}
+_DAY_BREADTH_CACHE: dict[tuple[int, str], float] = {}
+_AUXILIARY_SCORES: dict[str, dict[str, tuple[float, float, float]]] = {}
+
+
+def _point_in_time_auxiliary(symbol: str, dates: list[str], day_index: int) -> tuple[float, float, float]:
+    if day_index <= 0:
+        return (0.0, 0.0, 0.0)
+    return _AUXILIARY_SCORES.get(symbol, {}).get(dates[day_index - 1], (0.0, 0.0, 0.0))
 
 
 @dataclass
@@ -69,8 +82,16 @@ def _simulate(grouped: dict[str, list[Bar]], industries: dict[str, str], dates: 
     setup_weight = params["setup_weight"]
     sector_weight = params["sector_weight"]
     setup_threshold = params.get("setup_threshold", 0.0)
-    indices = {symbol: {bar.date: i for i, bar in enumerate(bars)} for symbol, bars in grouped.items()}
-    bars_by_date = {symbol: {bar.date: bar for bar in bars} for symbol, bars in grouped.items()}
+    minimum_breakout = params.get("minimum_breakout_quality", 0.0)
+    maximum_extension = params.get("maximum_extension_penalty", 1.0)
+    minimum_flow = params.get("minimum_flow_score", -1.0)
+    cache_key = id(grouped)
+    if cache_key not in _SIMULATION_CACHE:
+        _SIMULATION_CACHE[cache_key] = (
+            {symbol: {bar.date: i for i, bar in enumerate(bars)} for symbol, bars in grouped.items()},
+            {symbol: {bar.date: bar for bar in bars} for symbol, bars in grouped.items()},
+        )
+    indices, bars_by_date = _SIMULATION_CACHE[cache_key]
     cash = float(cfg["initial_cash"])
     positions: dict[str, dict] = {}
     curve, pnls = [], []
@@ -84,30 +105,36 @@ def _simulate(grouped: dict[str, list[Bar]], industries: dict[str, str], dates: 
         # Decisions use only information available before today's open.
         if day_index and day_index % rebalance_days == 0:
             signals, sector_values = {}, {}
-            for symbol in todays:
-                idx = indices[symbol][day]
-                history = grouped[symbol][:idx]
-                if len(history) < 80:
+            signal_key = (cache_key, day, tuple(weights))
+            if signal_key not in _DAY_SIGNAL_CACHE:
+                raw_signals = {}
+                breadth_samples = []
+                for symbol in todays:
+                    idx = indices[symbol][day]
+                    history = grouped[symbol][:idx]
+                    if len(history) >= 21:
+                        breadth_samples.append(history[-1].close > statistics.mean(b.close for b in history[-20:]))
+                    if len(history) >= 80:
+                        raw_signals[symbol] = (momentum_score(history, weights), main_rise_setup(history))
+                _DAY_SIGNAL_CACHE[signal_key] = raw_signals
+                _DAY_BREADTH_CACHE[(cache_key, day)] = sum(breadth_samples) / len(breadth_samples) if breadth_samples else 0
+            for symbol, (base, setup) in _DAY_SIGNAL_CACHE[signal_key].items():
+                if base <= -900 or setup.score <= setup_threshold or setup.breakout_quality < minimum_breakout or setup.extension_penalty > maximum_extension:
                     continue
-                base = momentum_score(history, weights)
-                setup = main_rise_setup(history)
-                if base <= -900 or setup.score <= setup_threshold:
+                # Daily basic, money flow and announcements are only safe after
+                # that session closes; today's open may use yesterday's values.
+                auxiliary = _point_in_time_auxiliary(symbol, dates, day_index)
+                if auxiliary[0] < minimum_flow:
                     continue
-                signals[symbol] = (base, setup.score)
+                signals[symbol] = (base, setup.score, auxiliary)
                 sector_values.setdefault(industries.get(symbol, "unknown"), []).append(base)
             sector_scores = {k: statistics.mean(v) for k, v in sector_values.items() if len(v) >= 2}
-            ranked = sorted(signals, key=lambda s: signals[s][0] + setup_weight * signals[s][1] + sector_weight * sector_scores.get(industries.get(s, "unknown"), 0), reverse=True)
+            ranked = sorted(signals, key=lambda s: signals[s][0] + setup_weight * signals[s][1] + sector_weight * sector_scores.get(industries.get(s, "unknown"), 0) + params.get("flow_weight", 0) * signals[s][2][0] + params.get("activity_weight", 0) * signals[s][2][1] + params.get("quality_weight", 0) * signals[s][2][2], reverse=True)
             current_equity = cash + sum(p["shares"] * todays.get(s, grouped[s][-1]).open for s, p in positions.items())
             peak = max(peak, current_equity)
             drawdown = 1 - current_equity / peak
             count = cfg["max_positions"]
-            breadth_samples = []
-            for symbol in todays:
-                idx = indices[symbol][day]
-                history = grouped[symbol][:idx]
-                if len(history) >= 21:
-                    breadth_samples.append(history[-1].close > statistics.mean(b.close for b in history[-20:]))
-            breadth = sum(breadth_samples) / len(breadth_samples) if breadth_samples else 0
+            breadth = _DAY_BREADTH_CACHE.get((cache_key, day), 0)
             if breadth < params.get("breadth_min", 0.0): count = 0
             if drawdown >= cfg.get("halt_drawdown", .20): count = 0
             elif drawdown >= cfg.get("defensive_drawdown", .15): count = min(2, count)
@@ -120,23 +147,26 @@ def _simulate(grouped: dict[str, list[Bar]], industries: dict[str, str], dates: 
                 selected.append(symbol); sectors[sector] = sectors.get(sector, 0) + 1
                 if len(selected) >= count: break
 
+            blocked_reentry = set()
             for symbol in list(positions):
-                if symbol not in selected and symbol in todays:
+                holding_expired = params.get("maximum_holding_days", 0) > 0 and day_index - positions[symbol].get("entry_index", day_index) >= params["maximum_holding_days"]
+                if (symbol not in selected or holding_expired) and symbol in todays:
                     price = todays[symbol].open * (1 - slippage)
                     value = positions[symbol]["shares"] * price
                     cash += value - _fee(value, cfg, True)
                     pnls.append(value - _fee(value, cfg, True) - positions[symbol]["invested"])
                     del positions[symbol]
+                    blocked_reentry.add(symbol)
             budget = current_equity * cfg.get("initial_position_weight", .10)
             for symbol in selected:
-                if symbol in positions or symbol not in todays: continue
+                if symbol in positions or symbol not in todays or symbol in blocked_reentry: continue
                 price = todays[symbol].open * (1 + slippage)
                 shares = math.floor(min(budget, cash) / price / lot) * lot
                 value = shares * price
                 fee = _fee(value, cfg)
                 if shares > 0 and value + fee <= cash:
                     cash -= value + fee
-                    positions[symbol] = {"shares": shares, "cost": price, "high": price, "invested": value + fee}
+                    positions[symbol] = {"shares": shares, "cost": price, "high": price, "invested": value + fee, "entry_index": day_index}
 
         # Stops are conservatively executed at the worse of stop price and open.
         for symbol in list(positions):
@@ -168,41 +198,70 @@ def _simulate(grouped: dict[str, list[Bar]], industries: dict[str, str], dates: 
 
 
 def _score(metrics: BacktestMetrics) -> float:
-    return metrics.annualized_return + .12 * metrics.sharpe - 1.5 * metrics.max_drawdown
+    profit_quality = min(2.0, max(-1.0, metrics.profit_factor - 1))
+    return 3.0 * metrics.annualized_return + .20 * metrics.sharpe + .50 * (metrics.win_rate - .50) + .15 * profit_quality - .75 * metrics.max_drawdown
+
+
+def _deployment_eligible(metrics: BacktestMetrics) -> bool:
+    return metrics.total_return >= .05 and metrics.win_rate >= .45 and metrics.profit_factor >= 1.15 and metrics.max_drawdown <= .12 and metrics.trades >= 40
+
+
+def _profile_weights(profile: int, evolved: tuple[float, float, float]) -> tuple[float, float, float]:
+    profiles = {
+        0: evolved,
+        1: (.70, .30, .40),
+        2: (.40, .60, .40),
+        3: (.50, .50, .80),
+        4: (.80, .20, .20),
+        5: (.20, .80, .60),
+    }
+    return profiles.get(profile, evolved)
 
 
 def optimize_parameters(grouped: dict[str, list[Bar]], industries: dict[str, str], validation: list[str], weights: tuple[float, float, float], cfg: dict, seed: int = 29, incumbent_params: dict | None = None) -> list[dict]:
     """Deterministic evolutionary search scored on two sequential validation folds."""
     rng = random.Random(seed)
     spaces = {
-        "setup_weight": [.35, .50, .65, .80],
-        "sector_weight": [.10, .20, .30, .40],
-        "setup_threshold": [.0, .15, .30, .45],
-        "breadth_min": [.0, .35, .45, .55],
-        "backtest_rebalance_days": [3, 5, 10, 15],
+        "setup_weight": [.70, .80, .90, 1.0],
+        "sector_weight": [.0, .05, .10],
+        "setup_threshold": [.25, .30, .35, .40],
+        "breadth_min": [.30, .35, .40, .45],
+        "backtest_rebalance_days": [2, 3, 4, 5],
+        "max_positions": [3, 4, min(5, cfg.get("max_positions", 5))],
+        "minimum_breakout_quality": [.40, .45, .50, .55],
+        "maximum_extension_penalty": [.15, .25, .35, .50],
+        "maximum_holding_days": [20, 30, 40],
+        "trailing_activation": [.03, .05],
+        "momentum_profile": [1, 4],
+        "flow_weight": [.05, .10, .15],
+        "activity_weight": [.20, .30, .40],
+        "quality_weight": [.05, .10, .15, .20],
+        "minimum_flow_score": [.30, .40, .50, .60],
         # Risk policy is a hard ceiling, not a parameter the optimizer may loosen.
-        "initial_position_weight": [.05, .08, min(.10, cfg.get("initial_position_weight", .10))],
-        "hard_stop_loss": [.05, .07, min(.08, cfg.get("hard_stop_loss", .08))],
-        "trailing_stop": [.05, .07, min(.08, cfg.get("trailing_stop", .08))],
+        "initial_position_weight": [.08, min(.10, cfg.get("initial_position_weight", .10))],
+        "hard_stop_loss": [.03, .04, .05],
+        "trailing_stop": [.06, min(.08, cfg.get("trailing_stop", .08))],
     }
     midpoint = len(validation) // 2
     folds = [validation[:midpoint], validation[midpoint:]]
-    population = [{key: rng.choice(values) for key, values in spaces.items()} for _ in range(12)]
-    population.append({"setup_weight": .50, "sector_weight": .25, "setup_threshold": 0, "breadth_min": 0, "backtest_rebalance_days": 5, "initial_position_weight": .10, "hard_stop_loss": .08, "trailing_stop": .08})
+    population = [{key: rng.choice(values) for key, values in spaces.items()} for _ in range(16)]
+    baseline = {"setup_weight": .50, "sector_weight": .25, "setup_threshold": 0, "breadth_min": 0, "backtest_rebalance_days": 5, "max_positions": 5, "minimum_breakout_quality": 0, "maximum_extension_penalty": 1.0, "maximum_holding_days": 0, "trailing_activation": .05, "momentum_profile": 0, "flow_weight": 0, "activity_weight": 0, "quality_weight": 0, "minimum_flow_score": -1.0, "initial_position_weight": .10, "hard_stop_loss": .08, "trailing_stop": .08}
+    population.append(baseline)
     if incumbent_params and all(key in incumbent_params and incumbent_params[key] in values for key, values in spaces.items()):
         population.append({key: incumbent_params[key] for key in spaces})
     evaluated: dict[str, dict] = {}
-    for generation in range(3):
+    for generation in range(4):
         for params in population:
             key = json.dumps(params, sort_keys=True)
             if key in evaluated: continue
-            fold_metrics = [_simulate(grouped, industries, fold, weights, params, cfg)[0] for fold in folds]
+            candidate_weights = _profile_weights(params["momentum_profile"], weights)
+            fold_metrics = [_simulate(grouped, industries, fold, candidate_weights, params, cfg)[0] for fold in folds]
             scores = [_score(metric) for metric in fold_metrics]
             stability_penalty = statistics.pstdev(scores) if len(scores) > 1 else 0
             evaluated[key] = {**params, "score": statistics.mean(scores) - .35 * stability_penalty, "folds": [asdict(m) for m in fold_metrics], "generation": generation}
         elite = sorted(evaluated.values(), key=lambda item: item["score"], reverse=True)[:5]
         population = []
-        for _ in range(12):
+        for _ in range(16):
             child = {key: elite[rng.randrange(len(elite))][key] for key in spaces}
             for key, values in spaces.items():
                 if rng.random() < .30: child[key] = rng.choice(values)
@@ -211,11 +270,13 @@ def optimize_parameters(grouped: dict[str, list[Bar]], industries: dict[str, str
 
 
 def run_backtest(config_path: Path, data_path: Path, state_dir: Path, report_dir: Path) -> Path:
+    global _AUXILIARY_SCORES
     cfg = json.loads(config_path.read_text(encoding="utf-8"))
     grouped, names, industries = load_bars(data_path), load_names(data_path), load_industries(data_path)
     grouped = {s: b for s, b in grouped.items() if "ST" not in names.get(s, "").upper().replace(" ", "") and len(b) >= 250}
     dates = _common_dates(grouped)
     train, validation, test = chronological_split(dates, cfg.get("backtest_train_ratio", .60), cfg.get("backtest_validation_ratio", .20))
+    _AUXILIARY_SCORES = load_feature_scores(data_path.parent / "features", list(grouped), set(validation + test)) if (data_path.parent / "features").exists() else {}
     train_dates = set(train)
     train_set = {s: [b for b in bars if b.date in train_dates] for s, bars in grouped.items()}
     weights = evolve_weights(train_set, generations=12)
@@ -226,26 +287,47 @@ def run_backtest(config_path: Path, data_path: Path, state_dir: Path, report_dir
     iteration = int(search_state.get("iteration", 0)) + 1
     search_seed = 29 + (iteration - 1) * 7919
     candidates = optimize_parameters(grouped, industries, validation, weights, cfg, search_seed, incumbent.get("parameters") if incumbent else None)
-    winner = candidates[0]
-    winner_params = {key: winner[key] for key in ("setup_weight", "sector_weight", "setup_threshold", "breadth_min", "backtest_rebalance_days", "initial_position_weight", "hard_stop_loss", "trailing_stop")}
-    validation_metrics, _ = _simulate(grouped, industries, validation, weights, winner_params, cfg)
-    winner["validation"] = asdict(validation_metrics)
+    parameter_names = ("setup_weight", "sector_weight", "setup_threshold", "breadth_min", "backtest_rebalance_days", "max_positions", "minimum_breakout_quality", "maximum_extension_penalty", "maximum_holding_days", "trailing_activation", "momentum_profile", "flow_weight", "activity_weight", "quality_weight", "minimum_flow_score", "initial_position_weight", "hard_stop_loss", "trailing_stop")
+    shortlist = []
+    for candidate in candidates[:8]:
+        params = {key: candidate[key] for key in parameter_names}
+        candidate_weights = _profile_weights(params["momentum_profile"], weights)
+        full_metrics, _ = _simulate(grouped, industries, validation, candidate_weights, params, cfg)
+        candidate["validation"] = asdict(full_metrics)
+        candidate["selection_score"] = candidate["score"] + .50 * _score(full_metrics)
+        shortlist.append(candidate)
+    eligible = [candidate for candidate in shortlist if candidate["validation"]["total_return"] > 0 and candidate["validation"]["trades"] >= 20]
+    deployable = [candidate for candidate in eligible if _deployment_eligible(BacktestMetrics(**candidate["validation"]))]
+    winner = max(deployable or eligible or shortlist, key=lambda candidate: candidate["selection_score"])
+    winner["score"] = winner["selection_score"]
+    winner_params = {key: winner[key] for key in parameter_names}
+    winner_weights = _profile_weights(winner_params["momentum_profile"], weights)
+    validation_metrics = BacktestMetrics(**winner["validation"])
+    research_path = state_dir / "models" / "research_candidate.json"
+    research_path.parent.mkdir(parents=True, exist_ok=True)
+    research_path.write_text(json.dumps({"iteration": iteration, "weights": list(winner_weights), "parameters": winner_params, "validation": winner["validation"], "selection_score": winner["selection_score"]}, ensure_ascii=False, indent=2), encoding="utf-8")
     incumbent_risk_valid = bool(incumbent) and incumbent.get("parameters", {}).get("initial_position_weight", 1) <= cfg.get("initial_position_weight", .10) and incumbent.get("parameters", {}).get("hard_stop_loss", 1) <= cfg.get("hard_stop_loss", .08) and incumbent.get("parameters", {}).get("trailing_stop", 1) <= cfg.get("trailing_stop", .08)
-    incumbent_score = incumbent.get("validation_score", -999) if incumbent_risk_valid else -999
-    promoted = incumbent is None or winner["score"] > incumbent_score + cfg.get("model_promotion_margin", .001)
+    incumbent_quality_valid = incumbent_risk_valid and incumbent.get("score_version") == 4 and incumbent.get("deployment_eligible", False)
+    incumbent_score = incumbent.get("validation_score", -999) if incumbent_quality_valid else -999
+    deployment_eligible = _deployment_eligible(validation_metrics)
+    promoted = deployment_eligible and (incumbent is None or winner["selection_score"] > incumbent_score + cfg.get("model_promotion_margin", .001))
     curve = []
     if promoted:
-        test_metrics, curve = _simulate(grouped, industries, test, weights, winner_params, cfg)
-        model = {"version": f"five-year-{date.today().isoformat()}-i{iteration}", "weights": list(weights), "parameters": winner_params, "validation": winner["validation"], "test": asdict(test_metrics), "split": {"train": [train[0], train[-1]], "validation": [validation[0], validation[-1]], "test": [test[0], test[-1]]}, "validation_score": winner["score"], "search_seed": search_seed}
+        test_metrics, curve = _simulate(grouped, industries, test, winner_weights, winner_params, cfg)
+        model = {"version": f"five-year-{date.today().isoformat()}-i{iteration}", "weights": list(winner_weights), "parameters": winner_params, "validation": winner["validation"], "test": asdict(test_metrics), "split": {"train": [train[0], train[-1]], "validation": [validation[0], validation[-1]], "test": [test[0], test[-1]]}, "validation_score": winner["selection_score"], "score_version": 4, "deployment_eligible": True, "search_seed": search_seed}
         model_path.parent.mkdir(parents=True, exist_ok=True)
         model_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
     else:
         model = incumbent
+        if model and not incumbent_quality_valid:
+            model = {**model, "deployment_eligible": False, "invalid_reason": "superseded scoring or point-in-time audit"}
+            model_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
         test_metrics = BacktestMetrics(**incumbent["test"])
-    search_state_path.write_text(json.dumps({"iteration": iteration, "last_seed": search_seed, "candidate_score": winner["score"], "champion_score": model["validation_score"], "promoted": promoted}, ensure_ascii=False, indent=2), encoding="utf-8")
+    active_score = model["validation_score"] if model and model.get("deployment_eligible") else -999
+    search_state_path.write_text(json.dumps({"iteration": iteration, "last_seed": search_seed, "candidate_score": winner["selection_score"], "champion_score": active_score, "promoted": promoted, "deployment_eligible": bool(model and model.get("deployment_eligible"))}, ensure_ascii=False, indent=2), encoding="utf-8")
     report_dir.mkdir(parents=True, exist_ok=True)
     report = report_dir / f"backtest-{date.today().isoformat()}.md"
     m = test_metrics
-    report.write_text(f"""# 五年历史回测\n\n- 样本：{len(grouped)} 只（已剔除当前名称含 ST 的股票），{dates[0]} 至 {dates[-1]}\n- 训练：{train[0]} 至 {train[-1]}\n- 双折验证选参：{validation[0]} 至 {validation[-1]}\n- 隔离测试：{test[0]} 至 {test[-1]}\n- 初始资金：{cfg['initial_cash']:,.0f} 元\n- 增量搜索：第 {iteration} 轮，种子 {search_seed}，候选 {len(candidates)} 组\n- 晋级：{'是' if promoted else '否，继续使用上一冠军'}\n- 本轮候选参数：{json.dumps(winner_params, ensure_ascii=False)}\n- 动量权重：{tuple(round(x, 4) for x in weights)}\n\n## 本轮验证结果\n\n- 总收益率：{validation_metrics.total_return:.2%}\n- 最大回撤：{validation_metrics.max_drawdown:.2%}\n- 胜率：{validation_metrics.win_rate:.2%}\n- 稳定性分数：{winner['score']:.4f}（原冠军 {incumbent_score:.4f}）\n\n## 当前冠军隔离测试结果\n\n- 总收益率：{m.total_return:.2%}\n- 年化收益率：{m.annualized_return:.2%}\n- 最大回撤：{m.max_drawdown:.2%}\n- Sharpe：{m.sharpe:.2f}\n- 完整交易：{m.trades}\n- 胜率：{m.win_rate:.2%}\n- 盈亏比：{m.profit_factor:.2f}\n- 期末权益：{m.final_equity:,.2f} 元\n\n## 口径与限制\n\n信号仅使用当时可见的收盘数据，下一交易日开盘成交；已计佣金、卖出印花税、滑点和100股整数手。当前版本使用今天仍上市且流动性靠前的股票池，存在幸存者偏差；历史 ST/退市状态和逐日涨跌停限制尚未完全点时还原，结果不能视为实盘收益承诺。自动迭代只依据双折验证成绩晋级；未晋级候选不会触碰隔离测试集。\n""", encoding="utf-8")
+    report.write_text(f"""# 五年历史回测\n\n- 样本：{len(grouped)} 只（已剔除当前名称含 ST 的股票），{dates[0]} 至 {dates[-1]}\n- 训练：{train[0]} 至 {train[-1]}\n- 双折验证选参：{validation[0]} 至 {validation[-1]}\n- 隔离测试：{test[0]} 至 {test[-1]}\n- 初始资金：{cfg['initial_cash']:,.0f} 元\n- 增量搜索：第 {iteration} 轮，种子 {search_seed}，候选 {len(candidates)} 组\n- 晋级：{'是' if promoted else '否，继续使用上一冠军'}\n- 本轮候选参数：{json.dumps(winner_params, ensure_ascii=False)}\n- 候选动量权重：{tuple(round(x, 4) for x in winner_weights)}\n\n## 本轮验证结果\n\n- 总收益率：{validation_metrics.total_return:.2%}\n- 最大回撤：{validation_metrics.max_drawdown:.2%}\n- 胜率：{validation_metrics.win_rate:.2%}\n- 稳定性分数：{winner['score']:.4f}（原冠军 {incumbent_score:.4f}）\n\n## 当前冠军隔离测试结果\n\n- 总收益率：{m.total_return:.2%}\n- 年化收益率：{m.annualized_return:.2%}\n- 最大回撤：{m.max_drawdown:.2%}\n- Sharpe：{m.sharpe:.2f}\n- 完整交易：{m.trades}\n- 胜率：{m.win_rate:.2%}\n- 盈亏比：{m.profit_factor:.2f}\n- 期末权益：{m.final_equity:,.2f} 元\n\n## 口径与限制\n\n信号仅使用当时可见的收盘数据，下一交易日开盘成交；已计佣金、卖出印花税、滑点和100股整数手。当前版本使用今天仍上市且流动性靠前的股票池，存在幸存者偏差；历史 ST/退市状态和逐日涨跌停限制尚未完全点时还原，结果不能视为实盘收益承诺。自动迭代只依据双折验证成绩晋级；未晋级候选不会触碰隔离测试集。\n""", encoding="utf-8")
     report.with_suffix(".json").write_text(json.dumps({"model": model, "candidates": candidates, "equity_curve": curve}, ensure_ascii=False, indent=2), encoding="utf-8")
     return report

@@ -169,7 +169,7 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
     cfg = json.loads(config_path.read_text(encoding="utf-8"))
     backtest_model_path = state_dir / "models" / "backtest_champion.json"
     backtest_model = json.loads(backtest_model_path.read_text(encoding="utf-8")) if backtest_model_path.exists() else None
-    if backtest_model and backtest_model.get("parameters"):
+    if backtest_model and backtest_model.get("deployment_eligible") and backtest_model.get("parameters"):
         cfg.update(backtest_model["parameters"])
     metadata_path = data_path.with_name("market.meta.json")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {"source": "local-csv"}
@@ -193,7 +193,7 @@ def run_paper(config_path: Path, data_path: Path, state_dir: Path, report_dir: P
     tradable = {s: bars for s, bars in grouped.items() if any(b.date == trade_date for b in bars)}
     histories = {s: [b for b in bars if b.date <= signal_date] for s, bars in tradable.items()}
     model = choose_champion(grouped, state_dir / "models" / "champion.json", signal_date, cfg.get("model_promotion_margin", .001))
-    weights = tuple(backtest_model["weights"]) if backtest_model and backtest_model.get("weights") else model["weights"]
+    weights = tuple(backtest_model["weights"]) if backtest_model and backtest_model.get("deployment_eligible") and backtest_model.get("weights") else model["weights"]
     base_scores = {symbol: momentum_score(bars, weights) for symbol, bars in histories.items()}
     setups = {symbol: main_rise_setup(bars) for symbol, bars in histories.items()}
     sector_members = {}

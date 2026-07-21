@@ -103,7 +103,18 @@ def update_tushare_market_csv(client: TushareClient, path: Path, universe_size: 
         raise RuntimeError("Tushare没有返回合规股票池")
     start_date = (datetime.strptime(trade_date, "%Y%m%d") - timedelta(days=max(730, history_days * 2))).strftime("%Y%m%d")
     path.with_name("universe.json").write_text(json.dumps(universe, ensure_ascii=False, indent=2), encoding="utf-8")
-    training_universe = universe[:training_universe_size] if training_universe_size > 0 else universe
+    training_path = path.with_name("training_universe.json")
+    desired = universe[:training_universe_size] if training_universe_size > 0 else universe
+    if training_path.exists():
+        pinned_codes = [row["ts_code"] for row in json.loads(training_path.read_text(encoding="utf-8"))]
+        current = {row["ts_code"]: row for row in universe}
+        training_universe = [current[code] for code in pinned_codes if code in current]
+        target_size = training_universe_size if training_universe_size > 0 else len(universe)
+        existing = {row["ts_code"] for row in training_universe}
+        training_universe.extend(row for row in universe if row["ts_code"] not in existing and len(training_universe) < target_size)
+    else:
+        training_universe = desired
+    training_path.write_text(json.dumps(training_universe, ensure_ascii=False, indent=2), encoding="utf-8")
     names = {row["ts_code"]: row["name"] for row in training_universe}
     industries = {row["ts_code"]: row["industry"] for row in training_universe}
     daily_rows, factor_rows = [], []
