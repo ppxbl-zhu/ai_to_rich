@@ -1,120 +1,82 @@
-# QuantAgent optimization roadmap
+# QuantAgent roadmap
 
-## Current state
+## Current checkpoint
 
-QuantAgent is an A-share research and paper-trading prototype combining four
-agents, four strategy families, a backtester, genetic optimization, monitoring,
-notifications and a FastAPI dashboard.
+- Active branch: `main`
+- Active milestone: Milestone 0 complete; paused before Milestone 1
+- Product mode: research, advice, and paper trading only
+- Live broker orders: prohibited
+- Durable requirements: `docs/PRODUCT_REQUIREMENTS.md`
 
-Known baseline issues:
+## Milestone 0 — Engineering baseline
 
-- `skills/intraday.py` has an `IndentationError`.
-- The test suite has no behavior tests.
-- GA runs have produced `NaN` or zero fitness.
-- Paper trading accepted invalid/stale data and repeated buys.
-- Review formatting fails when metrics are `None`.
-- The dashboard can collide on port 5001.
-- Core strategies depend on `/mnt/d/AI/auction-stock-picker`.
-- Runtime records contain inconsistent text encodings.
+Goal: a clean checkout can create a reproducible environment and pass an
+offline quality gate without secrets or network access.
 
-## Milestone 0 — Reproducible baseline
+- [x] Remove the abandoned QuantLab implementation.
+- [x] Establish the `src/quantagent` package.
+- [x] Pin Python and direct dependencies.
+- [x] Add Ruff, pytest, pre-commit, and Windows/Linux verification commands.
+- [x] Add Windows and Linux CI.
+- [x] Add fail-closed paper-mode configuration and secret redaction.
+- [x] Add deterministic offline market-data fixtures and a health report.
+- [x] Add PostgreSQL development service and Alembic migration structure.
+- [x] Add architecture decision records and domain glossary.
+- [x] Run the complete quality gate after replacing the legacy environment.
+- [ ] Commit and push the verified baseline.
 
-Goal: one command creates a clean environment and produces an evidence-backed
-health report.
+Exit gate: bootstrap followed by verification passes compile, lint, formatting,
+tests, and offline health checks without credentials or live APIs.
 
-- Fix syntax/import errors without changing trading behavior.
-- Pin or lock dependencies and document Python/WSL support.
-- Add Ruff, pytest and pre-commit configuration.
-- Add CI for compile, lint and unit tests.
-- Replace hard-coded external paths with validated configuration.
-- Add deterministic offline fixtures so tests never require live market APIs.
+## Milestone 1 — Trading domain and risk core
 
-Exit gate: a clean checkout passes compile, lint and tests without secrets or
-network access.
+- Quote, Bar, Signal, TradePlan, OrderIntent, ValidatedOrder, Fill, Position,
+  and Portfolio models.
+- 100,000 CNY deterministic paper account.
+- A-share T+1, board lot, price limit, suspension, ST, delisting, cash, position,
+  duplicate-order, and kill-switch controls.
+- Versioned transaction-cost engine using the confirmed Eastmoney fee schedule.
 
-## Milestone 1 — Data and paper-trading safety
+## Milestone 2 — Data system
 
-Goal: impossible market data cannot become an order.
+- Point-in-time daily, minute, index, sector, financial, announcement, and news
+  data.
+- Tushare capability probe and offline provider fakes.
+- Read-only Eastmoney desktop collector feasibility probe.
+- Freshness, provenance, reconciliation, and dataset versioning.
 
-- Introduce typed market-data validation with freshness and source metadata.
-- Reject missing names, non-positive/implausible prices and stale quotes.
-- Filter suspended, ST, delisting and non-tradable securities before selection.
-- Enforce A-share lot size, T+1, price limits and position/cash constraints.
-- Add idempotency keys for daily signals and simulated orders.
-- Make order and position updates atomic in SQLite.
-- Add a global kill switch and explicit `paper` execution mode.
+## Milestone 3 — Trustworthy backtesting
 
-Exit gate: adversarial fixtures cannot create invalid or duplicate paper orders.
+- Costs, slippage, T+1, suspensions, price limits, and unfilled orders.
+- Walk-forward and untouched out-of-sample evaluation.
+- Leakage and survivorship controls with reproducible reports.
 
-## Milestone 2 — Trustworthy backtesting
+## Milestone 4 — Swing-trend strategy
 
-Goal: strategy claims are reproducible and free from common leakage.
+- Trend, relative strength, financial quality, market regime, position sizing,
+  and deterministic exits.
 
-- Define a point-in-time data contract and trading calendar.
-- Model commissions, stamp duty, slippage, limit-up/down and unfilled orders.
-- Prevent look-ahead bias, survivorship bias and same-bar execution leakage.
-- Add walk-forward and out-of-sample evaluation.
-- Produce versioned reports with sample count, CAGR, Sharpe, drawdown, turnover
-  and confidence intervals.
-- Remove the unverified `86.6%` claim until reproduced.
+## Milestone 5 — Closing-auction short-horizon strategy
 
-Exit gate: a fixed dataset and configuration produce a deterministic report.
+- Closing scan, next-day exit state machine, independent risk budget, and
+  calibrated T2 extension gate.
 
-## Milestone 3 — Repair GA and LLM boundaries
+## Milestone 6 — LLM research layer
 
-Goal: optimization cannot silently promote invalid results.
+- Structured evidence extraction, hypothesis generation, explanation, and
+  review. LLM output remains outside deterministic execution controls.
 
-- Sanitize every metric with explicit finite-value checks.
-- Fail experiments on `NaN` instead of completing them.
-- Separate train, validation and untouched test periods.
-- Add minimum-trade and overfitting penalties.
-- Version genomes, datasets, code revision and random seeds.
-- Require schema validation for LLM JSON and deterministic fallback behavior.
-- Keep promotion manual and paper-only.
+## Milestone 7 — Genetic evolution
 
-Exit gate: seeded GA tests improve a synthetic objective and reject invalid runs.
+- Bounded genome, multi-objective fitness, experiment lineage, overfitting
+  controls, and manual promotion.
 
-## Milestone 4 — Architecture and observability
+## Milestone 8 — Paper operations
 
-Goal: modules are independently testable and failures are diagnosable.
-
-- Define provider interfaces for market data, LLM, notification and execution.
-- Remove imports from the sibling `auction-stock-picker` repository.
-- Replace broad exception swallowing with typed failures and retry policies.
-- Add structured logs, correlation IDs, task metrics and health probes.
-- Add schema migrations and a retention policy for logs/caches.
-- Separate scheduler jobs from business logic.
-
-Exit gate: each external provider can be replaced by an offline fake.
-
-## Milestone 5 — Operations and dashboard
-
-Goal: safe, low-maintenance paper operation.
-
-- Harden Docker and service startup; detect occupied ports.
-- Add scheduler locking and missed-job policies.
-- Add dashboard authentication before non-local deployment.
-- Show data freshness, failed jobs, risk state and strategy provenance.
-- Add backup/restore checks and incident runbooks.
-
-Exit gate: a paper-trading soak test completes at least 20 trading days without
-duplicate orders, silent job failures or unreconciled positions.
+- Dashboard, alerts, scheduling, reconciliation, incident handling, and at
+  least 20 trading days of simulation.
 
 ## Release gate
 
-Live trading is out of scope until a separate security, regulatory, broker,
-reconciliation and capital-risk review is explicitly authorized.
-
-## Standard verification
-
-During a milestone, run focused tests first. Before committing:
-
-```bash
-python -m compileall -q .
-ruff check .
-pytest -q
-```
-
-Record meaningful architecture decisions in `docs/adr/` and update this roadmap
-after each completed milestone. This is the durable project checkpoint used to
-avoid rediscovery and reduce future context/token usage.
+Live trading requires a separate broker, regulatory, security, reconciliation,
+capital-risk, and human-control review explicitly authorized by the user.

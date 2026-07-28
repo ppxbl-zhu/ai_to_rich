@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "quotes": [
+    {
+      "symbol": "000001.SZ",
+      "market_time": "2024-01-02T15:00:00+08:00",
+      "price": "9.80"
+    },
+    {
+      "symbol": "600000.SH",
+      "market_time": "2024-01-02T15:00:00+08:00",
+      "price": "8.20"
+    }
+  ]
+}
+
