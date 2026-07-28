@@ -3,7 +3,7 @@
 ## Current checkpoint
 
 - Active branch: `main`
-- Active milestone: Milestone 0 complete; paused before Milestone 1
+- Active milestone: Milestone 1 complete; Milestone 2 implementation
 - Product mode: research, advice, and paper trading only
 - Live broker orders: prohibited
 - Durable requirements: `docs/PRODUCT_REQUIREMENTS.md`
@@ -30,12 +30,15 @@ tests, and offline health checks without credentials or live APIs.
 
 ## Milestone 1 — Trading domain and risk core
 
-- Quote, Bar, Signal, TradePlan, OrderIntent, ValidatedOrder, Fill, Position,
+- [x] Quote, Bar, Signal, TradePlan, OrderIntent, ValidatedOrder, Fill, Position,
   and Portfolio models.
-- 100,000 CNY deterministic paper account.
-- A-share T+1, board lot, price limit, suspension, ST, delisting, cash, position,
-  duplicate-order, and kill-switch controls.
-- Versioned transaction-cost engine using the confirmed Eastmoney fee schedule.
+- [x] 100,000 CNY deterministic paper account.
+- [x] A-share T+1, board lot, price limit, suspension, ST, delisting, cash,
+  position, duplicate-order, and kill-switch controls.
+- [x] Versioned transaction-cost engine using the confirmed Eastmoney fee
+  schedule.
+- [x] Append-only order, fill, and portfolio-snapshot migration baseline.
+- [x] Run the complete quality gate and publish the checkpoint.
 
 ## Milestone 2 — Data system
 
