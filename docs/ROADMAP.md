@@ -23,7 +23,7 @@ offline quality gate without secrets or network access.
 - [x] Add PostgreSQL development service and Alembic migration structure.
 - [x] Add architecture decision records and domain glossary.
 - [x] Run the complete quality gate after replacing the legacy environment.
-- [ ] Commit and push the verified baseline.
+- [x] Commit and push the verified baseline.
 
 Exit gate: bootstrap followed by verification passes compile, lint, formatting,
 tests, and offline health checks without credentials or live APIs.
