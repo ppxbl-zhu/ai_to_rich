@@ -17,7 +17,10 @@ def test_latest_migration_creates_append_only_trading_ledger(tmp_path: Path) -> 
     )
     assert {
         "alembic_version",
+        "data_records",
+        "datasets",
         "order_intents",
         "fills",
         "portfolio_snapshots",
+        "provider_probes",
     } <= tables

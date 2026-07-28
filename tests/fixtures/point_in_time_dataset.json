@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "record_id": "daily:000001.SZ:20260728",
+      "kind": "daily_bar",
+      "symbol": "000001.SZ",
+      "event_time": "2026-07-28T15:00:00+08:00",
+      "available_at": "2026-07-28T17:00:00+08:00",
+      "captured_at": "2026-07-28T17:01:00+08:00",
+      "source": "offline-fixture",
+      "quality": "valid",
+      "payload": {"close": "10.20", "volume": 123456}
+    },
+    {
+      "record_id": "minute:000001.SZ:202607291450",
+      "kind": "minute_bar",
+      "symbol": "000001.SZ",
+      "event_time": "2026-07-29T14:50:00+08:00",
+      "available_at": "2026-07-29T14:50:03+08:00",
+      "captured_at": "2026-07-29T14:50:04+08:00",
+      "source": "offline-fixture",
+      "quality": "valid",
+      "payload": {"close": "10.30", "volume": 12000}
+    },
+    {
+      "record_id": "financial:000001.SZ:20260331",
+      "kind": "financial",
+      "symbol": "000001.SZ",
+      "event_time": "2026-03-31T00:00:00+08:00",
+      "available_at": "2026-04-25T18:00:00+08:00",
+      "captured_at": "2026-04-25T18:01:00+08:00",
+      "source": "offline-fixture",
+      "quality": "valid",
+      "payload": {"revenue": "1000000000", "net_profit": "120000000"}
+    },
+    {
+      "record_id": "announcement:000001.SZ:20260729:1",
+      "kind": "announcement",
+      "symbol": "000001.SZ",
+      "event_time": "2026-07-29T08:00:00+08:00",
+      "available_at": "2026-07-29T08:00:00+08:00",
+      "captured_at": "2026-07-29T08:01:00+08:00",
+      "source": "offline-fixture",
+      "quality": "valid",
+      "payload": {"title": "测试公告", "url": "https://example.invalid/announcement"}
+    },
+    {
+      "record_id": "news:market:202607291000",
+      "kind": "news",
+      "symbol": "MARKET",
+      "event_time": "2026-07-29T10:00:00+08:00",
+      "available_at": "2026-07-29T10:00:05+08:00",
+      "captured_at": "2026-07-29T10:00:06+08:00",
+      "source": "offline-fixture",
+      "quality": "valid",
+      "payload": {"title": "测试新闻", "source_url": "https://example.invalid/news"}
+    },
+    {
+      "record_id": "index:000001.SH:202607291450",
+      "kind": "index",
+      "symbol": "000001.SH",
+      "event_time": "2026-07-29T14:50:00+08:00",
+      "available_at": "2026-07-29T14:50:03+08:00",
+      "captured_at": "2026-07-29T14:50:04+08:00",
+      "source": "offline-fixture",
+      "quality": "valid",
+      "payload": {"close": "3450.00"}
+    },
+    {
+      "record_id": "sector:bank:202607291450",
+      "kind": "sector",
+      "symbol": "SECTOR.BANK",
+      "event_time": "2026-07-29T14:50:00+08:00",
+      "available_at": "2026-07-29T14:50:03+08:00",
+      "captured_at": "2026-07-29T14:50:04+08:00",
+      "source": "offline-fixture",
+      "quality": "valid",
+      "payload": {"pct_change": "1.20", "advancers": 30}
+    }
+  ]
+}

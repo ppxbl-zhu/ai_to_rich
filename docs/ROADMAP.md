@@ -3,7 +3,7 @@
 ## Current checkpoint
 
 - Active branch: `main`
-- Active milestone: Milestone 1 complete; Milestone 2 implementation
+- Active milestone: Milestones 1 and 2 complete; paused before Milestone 3
 - Product mode: research, advice, and paper trading only
 - Live broker orders: prohibited
 - Durable requirements: `docs/PRODUCT_REQUIREMENTS.md`
@@ -42,11 +42,13 @@ tests, and offline health checks without credentials or live APIs.
 
 ## Milestone 2 — Data system
 
-- Point-in-time daily, minute, index, sector, financial, announcement, and news
-  data.
-- Tushare capability probe and offline provider fakes.
-- Read-only Eastmoney desktop collector feasibility probe.
-- Freshness, provenance, reconciliation, and dataset versioning.
+- [x] Point-in-time daily, minute, index, sector, financial, announcement, and
+  news contracts and fixtures.
+- [x] Tushare capability probe and offline provider fake.
+- [x] Read-only Eastmoney desktop collector feasibility probe.
+- [x] Freshness, provenance, reconciliation, and dataset versioning.
+- [x] Dataset, record, and provider-probe migration baseline.
+- [x] Run the complete quality gate and publish the checkpoint.
 
 ## Milestone 3 — Trustworthy backtesting
 

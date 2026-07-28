@@ -13,6 +13,7 @@ status is maintained in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - Python 3.13
 - Windows PowerShell or WSL/Linux
 - Docker only when a local PostgreSQL service is needed
+- Optional Windows desktop probe: `uv sync --extra dev --extra desktop`
 
 ## Bootstrap
 
@@ -55,3 +56,6 @@ $env:QUANTAGENT_DATABASE_URL = "postgresql+psycopg://quantagent:local-developmen
 ```
 
 Do not store a real database password or Tushare token in Git.
+
+Verified data-source permissions and desktop-probe findings are recorded in
+[`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md).
