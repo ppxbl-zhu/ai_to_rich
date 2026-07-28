@@ -19,4 +19,3 @@ new advice or order intents.
 
 Milestone 0 ships only a deterministic fixture and health contract. Concrete
 providers are deferred to their planned milestones.
-

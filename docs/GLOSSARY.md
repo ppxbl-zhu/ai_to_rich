@@ -16,4 +16,3 @@
 | Data freshness | Difference between market time and decision time |
 | Point-in-time data | Information available at the historical decision time |
 | Experiment lineage | Immutable parent, code, data, configuration, seed, and result chain |
-

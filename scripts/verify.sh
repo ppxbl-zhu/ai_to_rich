@@ -6,4 +6,3 @@ set -euo pipefail
 .venv/bin/python -m ruff format --check .
 .venv/bin/python -m pytest -q
 .venv/bin/python -m quantagent.health
-

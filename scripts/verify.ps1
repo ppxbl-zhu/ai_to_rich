@@ -6,4 +6,3 @@ $python = ".\.venv\Scripts\python.exe"
 & $python -m ruff format --check .
 & $python -m pytest -q
 & $python -m quantagent.health
-

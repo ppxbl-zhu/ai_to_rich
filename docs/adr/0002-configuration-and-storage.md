@@ -20,4 +20,3 @@ redact credential-shaped fields recursively.
 Unit tests stay offline. PostgreSQL-specific behavior will require explicit
 integration tests in later milestones. Database schema changes must use
 migrations rather than implicit table creation.
-
