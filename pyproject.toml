@@ -1,0 +1,80 @@
+[project]
+name = "quant-agent"
+version = "0.1.0"
+description = "AI-powered quantitative trading system with LLM + Genetic Algorithm self-iteration"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "QuantAgent Team"}
+]
+
+dependencies = [
+    # Core
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0.0",
+    "loguru>=0.7.0",
+
+    # Data
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "akshare>=1.14.0",
+    "sqlalchemy>=2.0.0",
+
+    # HTTP & WebSocket
+    "httpx>=0.25.0",
+    "requests>=2.31.0",
+    "websockets>=12.0",
+    "aiohttp>=3.9.0",
+
+    # Web Dashboard
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "jinja2>=3.1.0",
+
+    # LLM
+    "openai>=1.6.0",            # DeepSeek uses OpenAI-compatible API
+
+    # Notification
+    "python-telegram-bot>=20.0",
+
+    # Utilities
+    "apscheduler>=3.10.0",
+    "tabulate>=0.9.0",
+    "colorama>=0.4.6",
+    "tqdm>=4.65.0",
+    "lxml>=4.9.0",
+    "beautifulsoup4>=4.12.0",
+    "openpyxl>=3.1.0",
+
+    # Database (optional TimescaleDB)
+    "psycopg2-binary>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+quant-agent = "scripts.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["config*", "core*", "data*", "engine*", "agents*", "strategies*", "backtest*", "optimizer*", "monitor*", "notification*", "web*", "scheduler*", "scripts*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,12 @@
+[Unit]
+Description=QuantAgent Indicator Refresh
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/mnt/d/AI/quant-agent
+Environment=PYTHONPATH=/mnt/d/AI/quant-agent
+ExecStart=/usr/bin/python3 scripts/indicator_refresh.py
+StandardOutput=append:/mnt/d/AI/quant-agent/logs/indicator-refresh.log
+StandardError=append:/mnt/d/AI/quant-agent/logs/indicator-refresh.log

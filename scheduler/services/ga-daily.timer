@@ -1,0 +1,10 @@
+[Unit]
+Description=QuantAgent Daily GA Timer - 每日凌晨2:00
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=ga-daily.service
+
+[Install]
+WantedBy=timers.target

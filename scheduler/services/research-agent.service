@@ -1,0 +1,12 @@
+[Unit]
+Description=QuantAgent Research - 盘前市场调研
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/mnt/d/AI/quant-agent
+Environment=PYTHONPATH=/mnt/d/AI/quant-agent
+ExecStart=/usr/bin/python3 scripts/run_research.py
+StandardOutput=append:/mnt/d/AI/quant-agent/logs/research.log
+StandardError=append:/mnt/d/AI/quant-agent/logs/research.log

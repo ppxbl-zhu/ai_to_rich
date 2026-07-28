@@ -1,0 +1,11 @@
+[Unit]
+Description=QuantAgent Review - 盘后复盘
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/mnt/d/AI/quant-agent
+Environment=PYTHONPATH=/mnt/d/AI/quant-agent
+ExecStart=/usr/bin/python3 scripts/run_review.py
+StandardOutput=append:/mnt/d/AI/quant-agent/logs/review.log
+StandardError=append:/mnt/d/AI/quant-agent/logs/review.log

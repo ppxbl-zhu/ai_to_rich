@@ -1,0 +1,11 @@
+[Unit]
+Description=QuantAgent Daily GA - 每日GA微调
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/mnt/d/AI/quant-agent
+Environment=PYTHONPATH=/mnt/d/AI/quant-agent
+ExecStart=/usr/bin/python3 scripts/run_ga_daily.py
+StandardOutput=append:/mnt/d/AI/quant-agent/logs/ga-daily.log
+StandardError=append:/mnt/d/AI/quant-agent/logs/ga-daily.log

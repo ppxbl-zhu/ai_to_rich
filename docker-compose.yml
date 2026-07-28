@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # ============================================================
+  # QuantAgent Core — 核心服务 (调度器 + Dashboard)
+  # ============================================================
+  quantagent:
+    build: .
+    container_name: quantagent
+    restart: unless-stopped
+    ports:
+      - "5001:5001"           # Web Dashboard
+    volumes:
+      - ./data:/app/data      # SQLite + 缓存持久化
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+      # K线数据库 (挂载现有数据)
+      - /mnt/d/AI/auction-stock-picker/data/kline_cache.db:/app/data/kline_cache.db:ro
+    environment:
+      - DEPLOYMENT_MODE=cloud
+      - PYTHONPATH=/app
+      - LLM_API_KEY=${LLM_API_KEY}
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - SCT_SEND_KEYS=${SCT_SEND_KEYS:-}
+      - DASHBOARD=1
+      - DAEMON=1
+    command: ["/app/scripts/start.sh", "start"]
+    healthcheck:
+      test: ["CMD", "/app/scripts/start.sh", "health"]
+      interval: 300s
+      timeout: 30s
+      retries: 3
+      start_period: 30s
+
+  # ============================================================
+  # TimescaleDB — 时序数据库 (K线+tick存储)
+  # ============================================================
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: quantagent-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./scripts/init_timescale.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - POSTGRES_DB=quantagent
+      - POSTGRES_USER=quantagent
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-quantagent}
+
+  # ============================================================
+  # Redis — 缓存 + 跨进程事件总线
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: quantagent-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+volumes:
+  timescale_data:
+  redis_data:
