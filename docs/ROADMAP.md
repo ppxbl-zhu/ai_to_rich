@@ -62,8 +62,12 @@ tests, and offline health checks without credentials or live APIs.
 
 ## Milestone 4 — Swing-trend strategy
 
-- Trend, relative strength, financial quality, market regime, position sizing,
-  and deterministic exits.
+- [x] Daily and weekly trend, stock and sector relative strength, financial
+  quality, and risk-on market-regime entry gates.
+- [x] Volatility-risk and capital-cap position sizing in A-share board lots.
+- [x] Initial stop, trailing stop, trend break, target, and maximum-holding
+  deterministic exits.
+- [x] Run the complete quality gate and publish the checkpoint.
 
 ## Milestone 5 — Closing-auction short-horizon strategy
 
