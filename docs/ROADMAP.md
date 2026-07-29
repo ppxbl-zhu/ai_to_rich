@@ -83,8 +83,15 @@ tests, and offline health checks without credentials or live APIs.
 
 ## Milestone 6 — LLM research layer
 
-- Structured evidence extraction, hypothesis generation, explanation, and
-  review. LLM output remains outside deterministic execution controls.
+- [x] Point-in-time evidence identities, source metadata, timestamps, and
+  content hashes.
+- [x] Structured summaries, cited hypotheses, contradiction tracking,
+  falsification conditions, risks, and bounded confidence.
+- [x] Fail-closed schema, citation, confidence, and execution-field validation.
+- [x] Provider, model, prompt version, raw output, token, cost, validation, and
+  failure audit migration.
+- [x] LLM research remains structurally outside order and risk controls.
+- [x] Run the complete quality gate and publish the checkpoint.
 
 ## Milestone 7 — Genetic evolution
 

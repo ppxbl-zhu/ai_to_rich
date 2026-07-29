@@ -23,4 +23,6 @@ def test_latest_migration_creates_append_only_trading_ledger(tmp_path: Path) -> 
         "fills",
         "portfolio_snapshots",
         "provider_probes",
+        "research_calls",
+        "research_evidence",
     } <= tables
