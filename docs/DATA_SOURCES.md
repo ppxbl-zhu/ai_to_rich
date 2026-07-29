@@ -81,8 +81,11 @@ metadata are joined from Tushare before conversion to the common quote model.
 - Tushare common endpoints are the primary source for daily and financial data.
 - No minute or news endpoint is treated as available without a successful
   separately authorized live probe.
-- Eastmoney remains an auxiliary intraday source. Its OCR output is never
-  accepted without Tushare cross-validation and complete risk metadata.
+- Eastmoney's field-whitelisted public market pages provide the full-market
+  intraday snapshot. Tushare supplies completed daily history, financial
+  factors, sector membership, limits, suspensions, and the trading calendar.
+- The desktop watchlist and its OCR output do not define or restrict either
+  strategy universe. OCR is optional diagnostic evidence only.
 - The full-market closing scan uses a reviewed, minimal client for Eastmoney's
   public Shanghai and Shenzhen quote pages. Requests are concurrent, limited
   to approved quote fields, and bounded by a ten-second timeout. Tushare joins

@@ -22,11 +22,13 @@ from quantagent.platform import (
 )
 from quantagent.platform_schedule import CycleKind
 from quantagent.providers.closing_session import build_closing_session
-from quantagent.providers.eastmoney_monitor import build_monitor_session
-from quantagent.providers.eastmoney_ocr import WindowsEastmoneyFrameSource
 from quantagent.providers.eastmoney_web import EastmoneyWebProvider
+from quantagent.providers.full_market_swing import (
+    FullMarketSwingScanner,
+    FullMarketSwingSnapshot,
+    build_full_market_swing_session,
+)
 from quantagent.providers.tushare import TushareClient
-from quantagent.providers.tushare_swing import enrich_monitor_with_swing
 
 
 class LivePlatform:
@@ -46,8 +48,9 @@ class LivePlatform:
         self.platform_store = PlatformStore(platform_state)
         self.runtime_store = JsonStateStore(runtime_state)
         self.session_dir = session_dir
-        self.frame_source = WindowsEastmoneyFrameSource()
         self.web_realtime = EastmoneyWebProvider()
+        self.swing_scanner = FullMarketSwingScanner(client=self.client)
+        self.swing_snapshot: FullMarketSwingSnapshot | None = None
 
     def run_cycle(self, now: datetime) -> object:
         return self.controller.run_due(
@@ -78,20 +81,27 @@ class LivePlatform:
         return bool(rows and int(rows[0]["is_open"]) == 1)
 
     def _preopen(self, now: datetime) -> dict[str, object]:
+        self.swing_snapshot = self.swing_scanner.scan(as_of=now)
         state = self.runtime.start(now)
-        return {"runtime_enabled": state.enabled, "cash": str(state.cash)}
+        return {
+            "runtime_enabled": state.enabled,
+            "cash": str(state.cash),
+            "swing_universe": "all_a_shares",
+            "scanned_symbols": self.swing_snapshot.scanned_symbols,
+            "swing_candidates": len(self.swing_snapshot.candidates),
+        }
 
     def _monitor(self, now: datetime) -> dict[str, object]:
-        monitor = build_monitor_session(
+        if (
+            self.swing_snapshot is None
+            or self.swing_snapshot.as_of.date() != now.date()
+        ):
+            self.swing_snapshot = self.swing_scanner.scan(as_of=now)
+        session = build_full_market_swing_session(
+            snapshot=self.swing_snapshot,
             client=self.client,
-            frame_source=self.frame_source,
-            process_id=self.process_id,
+            realtime=self.web_realtime,
             now=now,
-        )
-        session = enrich_monitor_with_swing(
-            client=self.client,
-            monitor=monitor,
-            decision_time=datetime.now().astimezone(),
         )
         path = self._session_path("swing", session.session_id)
         save_session(session, path)
@@ -105,6 +115,8 @@ class LivePlatform:
             "session_id": session.session_id,
             "quotes": len(session.quotes),
             "swing_candidates": len(session.swing_candidates),
+            "swing_universe": "all_a_shares",
+            "scanned_symbols": self.swing_snapshot.scanned_symbols,
             "status": report.status.value,
             "plans": report.generated_plans,
             "fills": report.fills,

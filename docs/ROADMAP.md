@@ -3,8 +3,8 @@
 ## Current checkpoint
 
 - Active branch: `main`
-- Active milestone: Milestone 9 first real simulation day in progress; post-close
-  reconciliation is scheduled for 2026-07-29
+- Active milestone: start the first qualifying full-market simulation day on
+  2026-07-30
 - Product mode: research, advice, and paper trading only
 - Live broker orders: prohibited
 - Durable requirements: `docs/PRODUCT_REQUIREMENTS.md`
@@ -150,6 +150,10 @@ tests, and offline health checks without credentials or live APIs.
 - [x] Concurrent full-market Eastmoney closing snapshot with fail-closed
   schema, timeout, and universe validation.
 - [x] Tushare sector membership, price-limit, suspension, and calendar joins.
+- [x] Full-market completed-daily-bar scan for the swing strategy; the
+  Eastmoney watchlist is not an input to candidate selection.
+- [x] Full-market realtime monitoring of scanned swing candidates and paper
+  positions.
 - [x] Local read-only dashboard and JSON health endpoint.
 - [x] Weekday Windows task with exchange-calendar holiday protection.
 - [ ] Accumulate and review real simulation evidence starting 2026-07-30;

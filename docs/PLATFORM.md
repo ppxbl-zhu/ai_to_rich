@@ -5,9 +5,11 @@ submits a live order.
 
 ## Trading-day workflow
 
-- 09:15-09:29: start the paper runtime and perform the pre-open cycle.
-- 09:30-11:30 and 13:00-14:44: monitor the approved Eastmoney watchlist every
-  five minutes and evaluate point-in-time swing factors.
+- 09:15-09:29: scan all active Shanghai and Shenzhen A shares from completed
+  daily bars, then apply trend, relative-strength, sector, financial-quality,
+  and market-regime gates to create the day's swing candidate pool.
+- 09:30-11:30 and 13:00-14:44: refresh the full-market realtime snapshot every
+  five minutes and monitor the scanned swing candidates and paper positions.
 - 14:45-14:55: scan the full Shanghai and Shenzhen A-share snapshot every
   minute for the closing strategy.
 - 14:56-15:00: continue position monitoring every minute.
@@ -21,10 +23,12 @@ the same daily order.
 
 ## Data sources
 
-The ordinary monitor uses the user-approved market-only Eastmoney desktop
-watchlist. OCR remains read-only and performs no clicks or navigation.
+Both strategy universes start from the full Shanghai and Shenzhen A-share
+market. A user's Eastmoney watchlist never defines, restricts, or ranks the
+selection universe. Desktop OCR is outside the automatic selection path and
+may only be used as an explicitly optional, read-only diagnostic.
 
-The closing scan uses a minimal, field-whitelisted client for Eastmoney's
+Intraday and closing scans use a minimal, field-whitelisted client for Eastmoney's
 public market pages. It retrieves Shanghai and Shenzhen pages concurrently
 with a ten-second request timeout and rejects implausible universe sizes.
 Tushare supplies the trading calendar, Shenwan membership, price limits, and
@@ -56,8 +60,7 @@ the available position. Restarting the platform does not lose these controls.
 The Windows task `QuantAgentPaper` starts a hidden PowerShell parent at 09:15
 Monday through Friday, sets `D:\codex\ai_to_rich` as the working directory,
 and runs `quantagent-platform`. The exchange calendar prevents trading cycles
-on holidays. The hidden parent is required: a visible terminal would cover the
-approved Eastmoney quote region and correctly make OCR fail closed.
+on holidays. The hidden parent keeps the scheduled service unobtrusive.
 
 Run or inspect manually:
 
@@ -72,5 +75,4 @@ While the service is running, open:
 - JSON health: <http://127.0.0.1:8765/api/status>
 
 Runtime state, sessions, and logs are stored below `data/paper/` and excluded
-from Git. The Eastmoney client must remain logged in, not minimized, and on the
-approved market-only layout.
+from Git. No broker or Eastmoney account/order page is used.
