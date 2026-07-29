@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -100,6 +101,60 @@ def test_started_runtime_runs_full_paper_pipeline_once(tmp_path: Path) -> None:
     repeated = runtime.run_once(session(), now=NOW)
     assert repeated.status is RuntimeStatus.ALREADY_PROCESSED
     assert store.load() == state
+
+
+def test_new_monitor_session_cannot_repeat_same_daily_strategy_order(
+    tmp_path: Path,
+) -> None:
+    store = JsonStateStore(tmp_path / "runtime.json")
+    runtime = PaperRuntime(store)
+    runtime.start(NOW)
+    first = session()
+    second = replace(
+        first,
+        session_id="session-20260729-1451",
+        captured_at=NOW + timedelta(seconds=30),
+    )
+
+    first_report = runtime.run_once(first, now=NOW)
+    second_report = runtime.run_once(second, now=NOW + timedelta(seconds=30))
+
+    assert first_report.fills == 2
+    assert second_report.generated_plans == 2
+    assert second_report.fills == 0
+    assert second_report.rejected_plans == 2
+    assert store.load().positions == {"000001.SZ": 800, "300001.SZ": 200}
+
+
+def test_next_day_quote_executes_persisted_position_stop(tmp_path: Path) -> None:
+    store = JsonStateStore(tmp_path / "runtime.json")
+    runtime = PaperRuntime(store)
+    runtime.start(NOW)
+    entry = replace(session(), closing_candidates=())
+    runtime.run_once(entry, now=NOW)
+    next_day = NOW + timedelta(days=1)
+    stopped_quote = replace(
+        quote("000001.SZ", "10.50"),
+        market_time=next_day,
+        captured_at=next_day,
+    )
+    exit_session = PaperSession(
+        session_id="session-20260730-1000",
+        trading_date=next_day.date(),
+        captured_at=next_day,
+        dataset_version="sha256:next-day",
+        is_trading_day=True,
+        quotes={"000001.SZ": stopped_quote},
+        swing_candidates=(),
+        closing_candidates=(),
+    )
+
+    report = runtime.run_once(exit_session, now=next_day)
+
+    assert report.generated_plans == 1
+    assert report.fills == 1
+    assert store.load().positions == {}
+    assert store.load().cash == Decimal("98785.62")
 
 
 def test_runtime_fails_closed_on_stale_data_without_mutating_portfolio(

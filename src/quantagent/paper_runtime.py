@@ -17,6 +17,7 @@ from quantagent.domain import (
     OrderIntent,
     Portfolio,
     Position,
+    Side,
     TradePlan,
 )
 from quantagent.paper import PaperBroker
@@ -55,9 +56,13 @@ class RuntimeState:
     available_positions: Mapping[str, int]
     average_costs: Mapping[str, Decimal]
     acquired_on: Mapping[str, date]
+    position_strategies: Mapping[str, str]
+    stop_prices: Mapping[str, Decimal]
+    target_prices: Mapping[str, Decimal]
     processed_session_ids: tuple[str, ...]
     blocked_session_ids: tuple[str, ...]
     fill_ids: tuple[str, ...]
+    executed_intent_keys: tuple[str, ...]
     open_incidents: int
     last_started_at: datetime | None
     last_stopped_at: datetime | None
@@ -136,9 +141,13 @@ class JsonStateStore:
                 available_positions={},
                 average_costs={},
                 acquired_on={},
+                position_strategies={},
+                stop_prices={},
+                target_prices={},
                 processed_session_ids=(),
                 blocked_session_ids=(),
                 fill_ids=(),
+                executed_intent_keys=(),
                 open_incidents=0,
                 last_started_at=None,
                 last_stopped_at=None,
@@ -159,9 +168,19 @@ class JsonStateStore:
                 key: date.fromisoformat(value)
                 for key, value in payload["acquired_on"].items()
             },
+            position_strategies=dict(payload.get("position_strategies", {})),
+            stop_prices={
+                key: Decimal(value)
+                for key, value in payload.get("stop_prices", {}).items()
+            },
+            target_prices={
+                key: Decimal(value)
+                for key, value in payload.get("target_prices", {}).items()
+            },
             processed_session_ids=tuple(payload["processed_session_ids"]),
             blocked_session_ids=tuple(payload.get("blocked_session_ids", [])),
             fill_ids=tuple(payload["fill_ids"]),
+            executed_intent_keys=tuple(payload.get("executed_intent_keys", [])),
             open_incidents=int(payload["open_incidents"]),
             last_started_at=_optional_datetime(payload["last_started_at"]),
             last_stopped_at=_optional_datetime(payload["last_stopped_at"]),
@@ -181,9 +200,17 @@ class JsonStateStore:
             "acquired_on": {
                 key: value.isoformat() for key, value in state.acquired_on.items()
             },
+            "position_strategies": dict(state.position_strategies),
+            "stop_prices": {
+                key: str(value) for key, value in state.stop_prices.items()
+            },
+            "target_prices": {
+                key: str(value) for key, value in state.target_prices.items()
+            },
             "processed_session_ids": list(state.processed_session_ids),
             "blocked_session_ids": list(state.blocked_session_ids),
             "fill_ids": list(state.fill_ids),
+            "executed_intent_keys": list(state.executed_intent_keys),
             "open_incidents": state.open_incidents,
             "last_started_at": _optional_isoformat(state.last_started_at),
             "last_stopped_at": _optional_isoformat(state.last_stopped_at),
@@ -283,17 +310,23 @@ class PaperRuntime:
                 position.quantity * session.quotes[symbol].price
                 for symbol, position in portfolio.positions.items()
             )
-            plans = self._plans(session, equity)
+            plans = self._plans(session, equity, state, portfolio)
             broker = PaperBroker(initial_cash=portfolio.cash)
             broker.portfolio = portfolio
             risk = RiskEngine(max_quote_age=self.maximum_session_age)
             rejected = 0
             fills = []
+            filled_plans = []
+            executed_intent_keys = []
             for strategy_name, plan in plans:
+                intent_key = (
+                    f"{strategy_name}:{plan.symbol}:{session.trading_date.isoformat()}"
+                )
+                if intent_key in state.executed_intent_keys:
+                    rejected += 1
+                    continue
                 intent = OrderIntent(
-                    idempotency_key=(
-                        f"{strategy_name}:{plan.symbol}:{session.trading_date.isoformat()}"
-                    ),
+                    idempotency_key=intent_key,
                     created_at=now,
                     trading_date=session.trading_date,
                     plan=plan,
@@ -309,12 +342,16 @@ class PaperRuntime:
                     rejected += 1
                     continue
                 fills.append(broker.execute(validated))
+                filled_plans.append((strategy_name, plan))
+                executed_intent_keys.append(intent_key)
 
             new_state = self._state_after(
                 state,
                 broker.portfolio,
                 session.session_id,
                 tuple(fill.fill_id for fill in fills),
+                tuple(executed_intent_keys),
+                tuple(filled_plans),
             )
             self.store.save(new_state)
             return RuntimeReport(
@@ -342,9 +379,40 @@ class PaperRuntime:
 
     @staticmethod
     def _plans(
-        session: PaperSession, equity: Decimal
+        session: PaperSession,
+        equity: Decimal,
+        state: RuntimeState,
+        portfolio: Portfolio,
     ) -> tuple[tuple[str, TradePlan], ...]:
         plans: list[tuple[str, TradePlan]] = []
+        for symbol, position in sorted(portfolio.positions.items()):
+            quote = session.quotes.get(symbol)
+            stop_price = state.stop_prices.get(symbol)
+            target_price = state.target_prices.get(symbol)
+            strategy_name = state.position_strategies.get(symbol)
+            if (
+                quote is None
+                or stop_price is None
+                or target_price is None
+                or strategy_name is None
+                or position.available_quantity <= 0
+            ):
+                continue
+            if quote.price <= stop_price or quote.price >= target_price:
+                plans.append(
+                    (
+                        f"{strategy_name}-exit",
+                        TradePlan(
+                            symbol=symbol,
+                            side=Side.SELL,
+                            quantity=position.available_quantity,
+                            limit_price=quote.price,
+                            stop_price=stop_price,
+                            target_price=target_price,
+                            invalidation="persisted stop or target reached",
+                        ),
+                    )
+                )
         swing = SwingTrendStrategy(SwingConfig())
         for candidate in session.swing_candidates:
             decision = swing.evaluate_entry(candidate, equity=equity)
@@ -381,7 +449,21 @@ class PaperRuntime:
         portfolio: Portfolio,
         session_id: str,
         fill_ids: tuple[str, ...],
+        executed_intent_keys: tuple[str, ...],
+        filled_plans: tuple[tuple[str, TradePlan], ...],
     ) -> RuntimeState:
+        position_strategies = dict(previous.position_strategies)
+        stop_prices = dict(previous.stop_prices)
+        target_prices = dict(previous.target_prices)
+        for strategy_name, plan in filled_plans:
+            if plan.side is Side.BUY:
+                position_strategies[plan.symbol] = strategy_name
+                stop_prices[plan.symbol] = plan.stop_price
+                target_prices[plan.symbol] = plan.target_price
+            else:
+                position_strategies.pop(plan.symbol, None)
+                stop_prices.pop(plan.symbol, None)
+                target_prices.pop(plan.symbol, None)
         return replace(
             previous,
             cash=portfolio.cash,
@@ -401,11 +483,18 @@ class PaperRuntime:
                 symbol: position.acquired_on
                 for symbol, position in portfolio.positions.items()
             },
+            position_strategies=position_strategies,
+            stop_prices=stop_prices,
+            target_prices=target_prices,
             processed_session_ids=(
                 *previous.processed_session_ids,
                 session_id,
             ),
             fill_ids=(*previous.fill_ids, *fill_ids),
+            executed_intent_keys=(
+                *previous.executed_intent_keys,
+                *executed_intent_keys,
+            ),
         )
 
 

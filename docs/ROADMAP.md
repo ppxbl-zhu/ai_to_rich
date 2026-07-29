@@ -138,8 +138,22 @@ tests, and offline health checks without credentials or live APIs.
 - [x] Map and reconcile approved Eastmoney intraday fields into a live paper
   session.
 - [x] Start accumulation of the first real simulation trading day.
-- [ ] Complete and reconcile 2026-07-29 after market close before counting it
-  as qualification day 1.
+- [x] Reconcile 2026-07-29 after market close: cash and positions matched, but
+  repeated OCR failures made the workflow incomplete, so it is not a
+  qualifying day.
+
+## Milestone 10 — Automated local paper platform
+
+- [x] Persistent five-minute intraday and one-minute closing-window schedule.
+- [x] Cross-session daily order idempotency.
+- [x] Persisted strategy, stop, and target metadata with T+1 exits.
+- [x] Concurrent full-market Eastmoney closing snapshot with fail-closed
+  schema, timeout, and universe validation.
+- [x] Tushare sector membership, price-limit, suspension, and calendar joins.
+- [x] Local read-only dashboard and JSON health endpoint.
+- [x] Weekday Windows task with exchange-calendar holiday protection.
+- [ ] Accumulate and review real simulation evidence starting 2026-07-30;
+  qualifying streak remains 0.
 
 ## Release gate
 

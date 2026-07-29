@@ -83,6 +83,16 @@ metadata are joined from Tushare before conversion to the common quote model.
   separately authorized live probe.
 - Eastmoney remains an auxiliary intraday source. Its OCR output is never
   accepted without Tushare cross-validation and complete risk metadata.
+- The full-market closing scan uses a reviewed, minimal client for Eastmoney's
+  public Shanghai and Shenzhen quote pages. Requests are concurrent, limited
+  to approved quote fields, and bounded by a ten-second timeout. Tushare joins
+  sector membership, price limits, suspensions, and the trading calendar.
+  Schema drift, an implausibly small universe, or incomplete risk metadata
+  disables the affected closing cycle.
+- The 2026-07-29 rehearsal proved that a visible scheduler console can obscure
+  the approved desktop OCR region. The task now runs under a hidden parent.
+  A post-fix read recovered seven Tushare-verified quotes; the failed earlier
+  cycles remain recorded and disqualify that rehearsal day.
 - Every record carries event time, availability time, capture time, source,
   quality state, and dataset version.
 - Conflicting providers cannot silently overwrite one another.
