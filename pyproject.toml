@@ -30,6 +30,7 @@ dev = [
 quantagent-health = "quantagent.health:main"
 quantagent-eastmoney-monitor = "quantagent.eastmoney_cli:main"
 quantagent-paper = "quantagent.paper_cli:main"
+quantagent-swing-session = "quantagent.swing_session_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/quantagent"]

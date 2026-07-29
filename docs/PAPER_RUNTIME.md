@@ -61,6 +61,27 @@ confidence `0.95`. Price limits and suspension state also come from Tushare.
 The resulting session deliberately contains no strategy candidates: observing
 live quotes is not permission to invent a buy or sell signal.
 
+Enrich a verified monitor session with point-in-time swing factors:
+
+```powershell
+quantagent-swing-session `
+  --input data/paper/live-monitor.json `
+  --output data/paper/live-swing.json
+```
+
+This step uses the latest effective Shenwan level-one membership as of the
+decision date, 60 or more completed daily bars, a broad-market benchmark,
+published financial indicators, and published operating cash flow. Industry
+reclassifications are resolved by their effective date; ambiguous same-date
+memberships fail closed. The command never creates closing-window candidates,
+because the approved quote table does not contain the required VWAP, range,
+volume-ratio, turnover, and sector-breadth evidence.
+
+On 2026-07-29 the first real intraday swing session produced seven complete
+candidates and zero plans. The broad-market regime was `risk_off`, so remaining
+in cash was a valid strategy outcome. This does not qualify the day until the
+post-close workflow completes and reconciles the ledger.
+
 For daily automation, Windows Task Scheduler should call `run-once` with a
 freshly generated session file. A successful command exit does not itself
 qualify a simulation day; post-close reconciliation and incident status must

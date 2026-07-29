@@ -3,8 +3,8 @@
 ## Current checkpoint
 
 - Active branch: `main`
-- Active milestone: Milestone 9 offline paper runtime integrated; Eastmoney
-  visible-market-page validation required before live intraday collection
+- Active milestone: Milestone 9 first real simulation day in progress; post-close
+  reconciliation is scheduled for 2026-07-29
 - Product mode: research, advice, and paper trading only
 - Live broker orders: prohibited
 - Durable requirements: `docs/PRODUCT_REQUIREMENTS.md`
@@ -137,7 +137,9 @@ tests, and offline health checks without credentials or live APIs.
   OCR, or read-only navigation.
 - [x] Map and reconcile approved Eastmoney intraday fields into a live paper
   session.
-- [ ] Start accumulation of the first real simulation trading day.
+- [x] Start accumulation of the first real simulation trading day.
+- [ ] Complete and reconcile 2026-07-29 after market close before counting it
+  as qualification day 1.
 
 ## Release gate
 
