@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, inspect
 
 
 def test_latest_migration_creates_append_only_trading_ledger(tmp_path: Path) -> None:
-    database = tmp_path / "quantagent.db"
+    database = tmp_path / "missing-runtime-directory" / "quantagent.db"
     config = Config("alembic.ini")
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database.as_posix()}")
 

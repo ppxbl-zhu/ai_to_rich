@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import make_url
 
 config = context.config
 if config.config_file_name is not None:
@@ -15,6 +17,13 @@ if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
 target_metadata = None
+
+
+def ensure_sqlite_parent_exists() -> None:
+    url = make_url(config.get_main_option("sqlalchemy.url"))
+    if url.get_backend_name() != "sqlite" or url.database in (None, ":memory:"):
+        return
+    Path(url.database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
 
 
 def run_migrations_offline() -> None:
@@ -29,6 +38,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    ensure_sqlite_parent_exists()
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
