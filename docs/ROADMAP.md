@@ -3,7 +3,7 @@
 ## Current checkpoint
 
 - Active branch: `main`
-- Active milestone: Milestones 1 and 2 complete; paused before Milestone 3
+- Active milestone: Milestone 3 complete; Milestones 4 and 5 authorized
 - Product mode: research, advice, and paper trading only
 - Live broker orders: prohibited
 - Durable requirements: `docs/PRODUCT_REQUIREMENTS.md`
@@ -52,9 +52,13 @@ tests, and offline health checks without credentials or live APIs.
 
 ## Milestone 3 — Trustworthy backtesting
 
-- Costs, slippage, T+1, suspensions, price limits, and unfilled orders.
-- Walk-forward and untouched out-of-sample evaluation.
-- Leakage and survivorship controls with reproducible reports.
+- [x] Future-bar execution with costs, slippage, T+1, suspensions, price
+  limits, and explicit unfilled-order outcomes.
+- [x] Chronological train, validation, and untouched test windows.
+- [x] Point-in-time inputs and reports that record dataset version,
+  configuration version, and random seed.
+- [x] Equity, return, drawdown, turnover, fill, and order-outcome reporting.
+- [x] Run the complete quality gate and publish the checkpoint.
 
 ## Milestone 4 — Swing-trend strategy
 
