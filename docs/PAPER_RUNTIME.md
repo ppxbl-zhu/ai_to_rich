@@ -39,11 +39,27 @@ The local Tushare token has passed read-only probes for the exchange calendar,
 daily bars, daily indicators, price limits, and suspensions. Tushare does not
 provide the separately permissioned realtime minute feed for this account.
 
-Eastmoney `mainfree` is discoverable, but this client exposes only custom
-`Pane` controls through UI Automation and no structured quote grid. Before OCR
-or any navigation, the user must place the client on a visible market-only
-page and confirm it contains no account, asset, position, order, or credential
-information. Only then may the approved quote fields be mapped.
+Eastmoney `mainfree` exposes only custom `Pane` controls through UI Automation,
+so the approved watchlist region is read with Windows Chinese OCR. The user
+confirmed that the visible client page is market-only. The collector validates
+the window title and layout, captures only the watchlist region in memory, and
+does not click, type, or navigate.
+
+Install the locked desktop dependencies and capture a monitor-only session:
+
+```powershell
+uv sync --locked --extra dev --extra desktop
+quantagent-eastmoney-monitor `
+  --process-id 9904 `
+  --output data/paper/live-monitor.json
+```
+
+OCR quotes are admitted only after schema/range checks and an independent
+percentage-change calculation from the Tushare previous close. A single
+verified frame has confidence `0.90`; matching consecutive frames have
+confidence `0.95`. Price limits and suspension state also come from Tushare.
+The resulting session deliberately contains no strategy candidates: observing
+live quotes is not permission to invent a buy or sell signal.
 
 For daily automation, Windows Task Scheduler should call `run-once` with a
 freshly generated session file. A successful command exit does not itself

@@ -87,6 +87,31 @@ def load_session(path: Path) -> PaperSession:
     )
 
 
+def save_session(session: PaperSession, path: Path) -> None:
+    payload = {
+        "schema_version": 1,
+        "session_id": session.session_id,
+        "trading_date": session.trading_date.isoformat(),
+        "captured_at": session.captured_at.isoformat(),
+        "dataset_version": session.dataset_version,
+        "is_trading_day": session.is_trading_day,
+        "quotes": [_jsonable(asdict(item)) for item in session.quotes.values()],
+        "swing_candidates": [
+            _jsonable(asdict(item)) for item in session.swing_candidates
+        ],
+        "closing_candidates": [
+            _jsonable(asdict(item)) for item in session.closing_candidates
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f"{path.suffix}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Operate the QuantAgent paper runtime")
     parser.add_argument(

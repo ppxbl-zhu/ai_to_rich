@@ -9,6 +9,7 @@ from quantagent.paper_runtime import (
     PaperRuntime,
     PaperSession,
     RuntimeStatus,
+    build_monitor_session,
 )
 from quantagent.swing import MarketRegime, SwingCandidate
 
@@ -130,3 +131,18 @@ def test_stop_is_persistent_and_prevents_new_sessions(tmp_path: Path) -> None:
 
     assert runtime.status().enabled is False
     assert runtime.run_once(session(), now=NOW).status is RuntimeStatus.STOPPED
+
+
+def test_verified_quotes_create_a_monitor_session_without_fake_candidates() -> None:
+    monitor = build_monitor_session(
+        quotes=(quote("000001.SZ", "12"),),
+        trading_date=NOW.date(),
+        captured_at=NOW,
+        is_trading_day=True,
+    )
+
+    assert monitor.session_id.startswith("monitor-20260729-145010-")
+    assert monitor.dataset_version.startswith("sha256:")
+    assert tuple(monitor.quotes) == ("000001.SZ",)
+    assert monitor.swing_candidates == ()
+    assert monitor.closing_candidates == ()

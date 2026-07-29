@@ -16,7 +16,9 @@ dependencies = [
 
 [project.optional-dependencies]
 desktop = [
+  "Pillow==12.3.0; sys_platform == 'win32'",
   "pywinauto==0.6.9; sys_platform == 'win32'",
+  "winocr==0.0.15; sys_platform == 'win32'",
 ]
 dev = [
   "pre-commit==4.6.1",
@@ -26,6 +28,7 @@ dev = [
 
 [project.scripts]
 quantagent-health = "quantagent.health:main"
+quantagent-eastmoney-monitor = "quantagent.eastmoney_cli:main"
 quantagent-paper = "quantagent.paper_cli:main"
 
 [tool.hatch.build.targets.wheel]

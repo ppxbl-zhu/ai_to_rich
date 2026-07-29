@@ -133,9 +133,9 @@ tests, and offline health checks without credentials or live APIs.
 - [x] Live Tushare read-only probes for calendar, daily, daily basic, price
   limits, and suspensions using the local token.
 - [x] Safe Eastmoney process and UIA window discovery.
-- [ ] Validate a user-confirmed visible market-only page before any screenshot,
+- [x] Validate a user-confirmed visible market-only page before any screenshot,
   OCR, or read-only navigation.
-- [ ] Map and reconcile approved Eastmoney intraday fields into a live paper
+- [x] Map and reconcile approved Eastmoney intraday fields into a live paper
   session.
 - [ ] Start accumulation of the first real simulation trading day.
 

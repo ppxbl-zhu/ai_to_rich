@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from hashlib import sha256
 from pathlib import Path
 
 from quantagent.closing import ClosingCandidate, ClosingConfig, ClosingStrategy
@@ -72,6 +73,53 @@ class RuntimeReport:
     fills: int = 0
     rejected_plans: int = 0
     reason: str | None = None
+
+
+def build_monitor_session(
+    *,
+    quotes: tuple[MarketQuote, ...],
+    trading_date: date,
+    captured_at: datetime,
+    is_trading_day: bool,
+) -> PaperSession:
+    if not quotes:
+        raise ValueError("monitor session requires at least one quote")
+    if captured_at.tzinfo is None or captured_at.utcoffset() is None:
+        raise ValueError("monitor capture time requires a timezone")
+    if any(quote.captured_at > captured_at for quote in quotes):
+        raise ValueError("quote capture cannot follow session capture")
+    payload = [
+        {
+            "symbol": quote.symbol,
+            "name": quote.name,
+            "board": quote.board.value,
+            "market_time": quote.market_time.isoformat(),
+            "captured_at": quote.captured_at.isoformat(),
+            "price": str(quote.price),
+            "previous_close": str(quote.previous_close),
+            "limit_up": str(quote.limit_up),
+            "limit_down": str(quote.limit_down),
+            "status": quote.status.value,
+            "source": quote.source,
+        }
+        for quote in sorted(quotes, key=lambda item: item.symbol)
+    ]
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    digest = sha256(canonical.encode("utf-8")).hexdigest()
+    return PaperSession(
+        session_id=(
+            f"monitor-{trading_date:%Y%m%d}-{captured_at:%H%M%S}-{digest[:12]}"
+        ),
+        trading_date=trading_date,
+        captured_at=captured_at,
+        dataset_version=f"sha256:{digest}",
+        is_trading_day=is_trading_day,
+        quotes={quote.symbol: quote for quote in quotes},
+        swing_candidates=(),
+        closing_candidates=(),
+    )
 
 
 class JsonStateStore:

@@ -58,15 +58,22 @@ The read-only Windows UI Automation probe found:
 - Safe top-level window: `东方财富终端`
 - Exposed UIA structure: 13 `Pane` controls and 1 `Window` control
 - Exposed structured quote grids: none
+- User-confirmed page scope: public market data only
+- OCR language: installed Windows `zh-Hans-CN`
+- Approved OCR region: visible watchlist quote table only
 
 The probe read only the safe window title, process ID, and UIA control types. It
 did not read control text, take screenshots, click, type, or connect to windows
 whose titles contained trading, order, account, asset, position, transfer, buy,
 or sell markers.
 
-Conclusion: safe window discovery is feasible, but this client version does not
-expose structured quote fields through UI Automation. OCR requires a separate
-review and is not silently substituted in Milestone 2.
+After the user approved the market-only page, the Milestone 9 collector read
+the watchlist region in memory and extracted code, name, latest price, and
+percentage change. It does not persist the frame or interact with account,
+asset, position, order, credential, buy, or sell surfaces. OCR rows are
+fail-closed on malformed fields, implausible values, window/layout changes, or
+Tushare previous-close disagreement. Current price limits and suspension
+metadata are joined from Tushare before conversion to the common quote model.
 
 ## Runtime policy
 
@@ -74,8 +81,8 @@ review and is not silently substituted in Milestone 2.
 - Tushare common endpoints are the primary source for daily and financial data.
 - No minute or news endpoint is treated as available without a successful
   separately authorized live probe.
-- Eastmoney remains an auxiliary source; its current UIA probe cannot supply
-  structured intraday quotes.
+- Eastmoney remains an auxiliary intraday source. Its OCR output is never
+  accepted without Tushare cross-validation and complete risk metadata.
 - Every record carries event time, availability time, capture time, source,
   quality state, and dataset version.
 - Conflicting providers cannot silently overwrite one another.
