@@ -3,7 +3,8 @@
 ## Current checkpoint
 
 - Active branch: `main`
-- Active milestone: Milestones 3, 4, and 5 complete; paused before Milestone 6
+- Active milestone: Milestones 0-8 engineering complete; accumulating the
+  Milestone 8 twenty-trading-day operational evidence gate
 - Product mode: research, advice, and paper trading only
 - Live broker orders: prohibited
 - Durable requirements: `docs/PRODUCT_REQUIREMENTS.md`
@@ -106,8 +107,19 @@ tests, and offline health checks without credentials or live APIs.
 
 ## Milestone 8 — Paper operations
 
-- Dashboard, alerts, scheduling, reconciliation, incident handling, and at
-  least 20 trading days of simulation.
+- [x] Portfolio, strategy allocation, data, scheduler, reconciliation,
+  incident, active-version, and experiment-lineage dashboard contract.
+- [x] Deterministic critical/warning alerts for stale data, reconciliation,
+  drawdown, and scheduler health.
+- [x] Trading-day-aware idempotent daily scheduling state.
+- [x] Non-destructive cash, position, order, and fill reconciliation.
+- [x] Incident lifecycle with a latched critical kill switch.
+- [x] Append-only operations, job, reconciliation, incident, and simulation
+  persistence migration.
+- [x] Twenty-day consecutive qualification tracker and fail-closed review gate.
+- [ ] Accumulate 20 real, consecutive, completed and reconciled A-share
+  simulation trading days without a critical incident.
+- [x] Run the complete engineering quality gate and publish the checkpoint.
 
 ## Release gate
 
