@@ -95,8 +95,14 @@ tests, and offline health checks without credentials or live APIs.
 
 ## Milestone 7 — Genetic evolution
 
-- Bounded genome, multi-objective fitness, experiment lineage, overfitting
-  controls, and manual promotion.
+- [x] Explicit decimal parameter bounds, steps, validation, and seeded mutation.
+- [x] Multi-objective fitness using out-of-sample return, drawdown, Sharpe,
+  win rate, payoff, cost, turnover, sensitivity, and cross-period stability.
+- [x] Invalid metrics and insufficient samples fail the experiment.
+- [x] Immutable parent-child lineage with code, data, universe, split, seed,
+  genome, hypothesis, metrics, and failure metadata.
+- [x] Evidence thresholds and recorded manual approval before paper promotion.
+- [x] Run the complete quality gate and publish the checkpoint.
 
 ## Milestone 8 — Paper operations
 
