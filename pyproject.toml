@@ -26,6 +26,7 @@ dev = [
 
 [project.scripts]
 quantagent-health = "quantagent.health:main"
+quantagent-paper = "quantagent.paper_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/quantagent"]

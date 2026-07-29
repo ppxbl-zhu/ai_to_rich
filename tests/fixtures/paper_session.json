@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "session_id": "offline-session-20260729-1450",
+  "trading_date": "2026-07-29",
+  "captured_at": "2026-07-29T14:50:10+08:00",
+  "dataset_version": "sha256:offline-paper-session",
+  "is_trading_day": true,
+  "quotes": [
+    {
+      "symbol": "000001.SZ",
+      "name": "Offline Main Board",
+      "board": "main",
+      "market_time": "2026-07-29T14:50:10+08:00",
+      "captured_at": "2026-07-29T14:50:10+08:00",
+      "price": "12.00",
+      "previous_close": "11.80",
+      "limit_up": "12.98",
+      "limit_down": "10.62",
+      "status": "active",
+      "source": "offline-session"
+    },
+    {
+      "symbol": "300001.SZ",
+      "name": "Offline ChiNext",
+      "board": "chinext",
+      "market_time": "2026-07-29T14:50:10+08:00",
+      "captured_at": "2026-07-29T14:50:10+08:00",
+      "price": "20.00",
+      "previous_close": "19.80",
+      "limit_up": "23.76",
+      "limit_down": "15.84",
+      "status": "active",
+      "source": "offline-session"
+    }
+  ],
+  "swing_candidates": [
+    {
+      "symbol": "000001.SZ",
+      "price": "12.00",
+      "ma20": "11.50",
+      "ma60": "10.50",
+      "weekly_ma10": "10.80",
+      "relative_strength_60d": "0.12",
+      "sector_relative_strength": "0.08",
+      "roe": "0.14",
+      "operating_cashflow_positive": true,
+      "debt_ratio": "0.45",
+      "atr": "0.40",
+      "market_regime": "risk_on"
+    }
+  ],
+  "closing_candidates": [
+    {
+      "symbol": "300001.SZ",
+      "observed_at": "14:50:10",
+      "price": "20.00",
+      "vwap": "19.60",
+      "close_location": "0.90",
+      "volume_ratio": "1.80",
+      "turnover": "120000000",
+      "stock_relative_strength": "0.08",
+      "sector_relative_strength": "0.06",
+      "sector_breadth": "0.70",
+      "at_limit_up": false,
+      "fresh": true
+    }
+  ]
+}

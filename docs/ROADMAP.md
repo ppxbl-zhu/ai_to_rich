@@ -3,8 +3,8 @@
 ## Current checkpoint
 
 - Active branch: `main`
-- Active milestone: Milestones 0-8 engineering complete; accumulating the
-  Milestone 8 twenty-trading-day operational evidence gate
+- Active milestone: Milestone 9 offline paper runtime integrated; Eastmoney
+  visible-market-page validation required before live intraday collection
 - Product mode: research, advice, and paper trading only
 - Live broker orders: prohibited
 - Durable requirements: `docs/PRODUCT_REQUIREMENTS.md`
@@ -120,6 +120,24 @@ tests, and offline health checks without credentials or live APIs.
 - [ ] Accumulate 20 real, consecutive, completed and reconciled A-share
   simulation trading days without a critical incident.
 - [x] Run the complete engineering quality gate and publish the checkpoint.
+
+## Milestone 9 — Paper runtime integration
+
+- [x] Explicit start, stop, status, and single-session run commands.
+- [x] Atomic local state, cross-process lock, session idempotency, persistent
+  portfolio, fills, blocked sessions, and operator stop reason.
+- [x] End-to-end swing and closing candidate evaluation through the common
+  risk engine and fee-aware paper broker.
+- [x] Fail-closed trading-day, date, freshness, and quote-completeness checks.
+- [x] Deterministic offline session fixture and CLI rehearsal.
+- [x] Live Tushare read-only probes for calendar, daily, daily basic, price
+  limits, and suspensions using the local token.
+- [x] Safe Eastmoney process and UIA window discovery.
+- [ ] Validate a user-confirmed visible market-only page before any screenshot,
+  OCR, or read-only navigation.
+- [ ] Map and reconcile approved Eastmoney intraday fields into a live paper
+  session.
+- [ ] Start accumulation of the first real simulation trading day.
 
 ## Release gate
 
