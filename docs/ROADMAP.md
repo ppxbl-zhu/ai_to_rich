@@ -3,7 +3,7 @@
 ## Current checkpoint
 
 - Active branch: `main`
-- Active milestone: Milestone 3 complete; Milestones 4 and 5 authorized
+- Active milestone: Milestones 3, 4, and 5 complete; paused before Milestone 6
 - Product mode: research, advice, and paper trading only
 - Live broker orders: prohibited
 - Durable requirements: `docs/PRODUCT_REQUIREMENTS.md`
@@ -71,8 +71,15 @@ tests, and offline health checks without credentials or live APIs.
 
 ## Milestone 5 — Closing-auction short-horizon strategy
 
-- Closing scan, next-day exit state machine, independent risk budget, and
-  calibrated T2 extension gate.
+- [x] Closing-window strength, liquidity, price-location, freshness, and sector
+  confirmation scan.
+- [x] Independent strategy and per-position capital budgets.
+- [x] T1 stop, target, deadline, and explicit extension state machine.
+- [x] T2 extension requires calibrated probability, minimum sample size,
+  evidence-backed logic, sector linkage, stock structure, market regime,
+  positive net edge, and no hard invalidation.
+- [x] T2 stop, target, and mandatory final deadline.
+- [x] Run the complete quality gate and publish the checkpoint.
 
 ## Milestone 6 — LLM research layer
 
